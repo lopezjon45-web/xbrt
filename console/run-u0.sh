@@ -5,10 +5,15 @@
 # SHA256SUMS.txt. Acts on the console only while ~/mesa-one-s/xbox/console-free reads exactly "xbrt". Never
 # uninstalls anything. Runs in the foreground. DRY_RUN=1 does the Mac-side checks and stops.
 set -euo pipefail
+# The script runs from a snapshot of itself, so an edit while a run is on cannot break the run (AGENT-RULES.md).
+if [ -z "${XBRT_SNAPSHOT:-}" ]; then
+    snapshot=$(mktemp -t run-u0.XXXXXX) && cp "$0" "$snapshot" && chmod +x "$snapshot"
+    XBRT_SNAPSHOT=1 XBRT_SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd) exec bash "$snapshot" "$@"
+fi
 # shellcheck source=/Users/jonlopez/mesa-one-s/cpugate/lib.sh
 . /Users/jonlopez/mesa-one-s/cpugate/lib.sh
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+HERE=${XBRT_SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}
 LEASE=/Users/jonlopez/mesa-one-s/xbox/console-free
 MAIN_NAME=LopezJon.XboxRuntime
 DEADLINE=90
