@@ -13,7 +13,7 @@ TESTS = [
     "emit", "gate",
     "fs-load", "fs-load-8b", "fs-store", "fs-store-a3", "fs-store-esp", "fs-store-imm", "fs-push", "fs-pop",
     "fs-movzx-byte", "fs-cmp", "fs-cmp-rev", "fs-other",
-    "mmio", "port", "privileged", "rdtsc", "nested", "trap-state", "spawn-exit", "thread-reuse", "suspend-scope", "fault-gate", "memory",
+    "mmio", "port", "privileged", "rdtsc", "nested", "trap-state", "spawn-exit", "thread-reuse", "seh-bad-chain", "suspend-scope", "fault-gate", "memory",
 ]
 REQUIRED = [r"^reserve ok\b", r"^identity ok\b"] + [rf"^cpu {re.escape(t)} ok\b" for t in TESTS] + [r"^cpu counters\b", r"^END$"]
 

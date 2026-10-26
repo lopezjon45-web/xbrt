@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -43,6 +44,7 @@ struct Call {
     uint32_t esp;
     uint32_t scratch;
     GateFrame frame{};
+    std::array<uint32_t, 4> ebx_esi_edi_ebp{kUntouched, kUntouched, kUntouched, kUntouched};
 
     Call(GuestMemory &m, GuestMemory::Stack stack) : memory(m), esp(stack.base.v - 0x1000), scratch(stack.base.v - 0x800)
     {
@@ -68,7 +70,8 @@ struct Call {
         at(esp) = kReturnAddress;
         uint32_t i = 0;
         for (uint32_t a : args) at(esp + 4 + 4 * i++) = a;
-        frame = {kUntouched, ecx, edx, kUntouched, kUntouched, kUntouched, kUntouched, esp, kReturnAddress, 0x1F80, 0x027F, 0};
+        auto [ebx, esi, edi, ebp] = ebx_esi_edi_ebp;
+        frame = {kUntouched, ecx, edx, ebx, ebp, esi, edi, esp, kReturnAddress, 0x1F80, 0x027F, 0};
         on_host_call(GuestThread::current(), HostCallId::kernel(o), frame);
     }
     // stdcall: back at the return address with the arguments popped.
@@ -359,17 +362,31 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
         result("idle-stub", failure);
     }
     {
-        // A raise the runtime cannot dispatch to the title's handlers is a named stop, not a return as if handled.
+        // A raise does not return to its caller: the guest resumes in the exception dispatcher, whose arguments are a
+        // copy of the record and the CONTEXT of the caller as if RtlRaiseException had returned to it.
         Call c(memory, stack);
         sink.seen.clear();
         uint32_t record = c.reserve(0x50);
         c.at(record) = 0xE06D7363;   // the C++ runtime's exception code
+        c.at(record + 0x10) = 1;     // NumberParameters
+        c.at(record + 0x14) = 0x19930520;
+        c.ebx_esi_edi_ebp = {0x0B0B0B0B, 0x05050505, 0x0D0D0D0D, 0x0E0E0E0E};
         c.run({302}, {record});
         std::string failure;
-        if (sink.seen.size() != 1 || !sink.seen[0].stop || sink.seen[0].kind != MissingKind::KernelExport ||
-            sink.seen[0].what.rfind("RtlRaiseException(0xE06D7363)", 0) != 0 || sink.seen[0].where.v != kReturnAddress)
-            failure = std::to_string(sink.seen.size()) + " reports, first '" + (sink.seen.empty() ? "" : sink.seen[0].what) + "'";
-        result("raise-refused", failure);
+        uint32_t esp = c.frame.esp;
+        uint32_t copy = esp + 12 <= c.esp ? c.at(esp) : 0, context = esp + 12 <= c.esp ? c.at(esp + 4) : 0;
+        if (c.frame.eip == kReturnAddress || !copy || !context || !sink.seen.empty())
+            failure = "eip=" + hex(c.frame.eip) + " esp=" + hex(esp) + ", " + std::to_string(sink.seen.size()) + " reports";
+        else if (c.at(copy) != 0xE06D7363 || c.at(copy + 0x0C) != kReturnAddress || c.at(copy + 0x10) != 1 ||
+                 c.at(copy + 0x14) != 0x19930520)
+            failure = "record copy code " + hex(c.at(copy)) + " address " + hex(c.at(copy + 0x0C)) + " parameter " +
+                      hex(c.at(copy + 0x14));
+        else if (c.at(context + 0x224) != kReturnAddress || c.at(context + 0x230) != c.esp + 8 ||
+                 c.at(context + 0x210) != 0x0B0B0B0B || c.at(context + 0x20C) != 0x05050505 ||
+                 c.at(context + 0x208) != 0x0D0D0D0D || c.at(context + 0x220) != 0x0E0E0E0E || (context + 4) % 16)
+            failure = "context Eip " + hex(c.at(context + 0x224)) + " Esp " + hex(c.at(context + 0x230)) + " Ebx " +
+                      hex(c.at(context + 0x210)) + " at " + hex(context);
+        result("raise-dispatch", failure);
     }
     {
         // No bridge: a stop that names the export and the call site, and nothing written to the guest's registers.

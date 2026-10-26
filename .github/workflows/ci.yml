@@ -230,10 +230,10 @@ jobs:
           exit 0
       - name: Judge the lab runs
         if: steps.labxbe.outcome == 'success'
-        run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh
+        run: python scripts/check-lab-run.py lab out/lab-run
       - name: Judge the lab runs from XISOs
         if: steps.labxbe.outcome == 'success' && steps.labiso.outcome == 'success'
-        run: python scripts/check-lab-run.py lab out/lab-iso --known-failure seh
+        run: python scripts/check-lab-run.py lab out/lab-iso
       - name: Judge the second launches and where the saves landed
         if: steps.labxbe.outcome == 'success'
         run: |

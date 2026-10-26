@@ -553,6 +553,45 @@ struct Tests {
         return {blocks.size() <= 2 && waits == 0 && threads_now == 0, detail};
     }
 
+    // Defect: a dispatch that loops for ever on a corrupt fs:[0] chain, or one that does not stop. The chain's one
+    // registration names itself as the next: its handler runs once, answers ContinueSearch, and the fault becomes the
+    // stop it was before SEH delivery, named as undelivered.
+    Result seh_bad_chain()
+    {
+        static uint32_t handler_calls;
+        handler_calls = 0;
+        P h;
+        h.raw({0xFF, 0x05}).u32(uint32_t(reinterpret_cast<uintptr_t>(&handler_calls)));   // inc dword [handler_calls]
+        h.raw({0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3});                                        // mov eax, 1; ret
+        uint32_t handler = code.put(h.b);
+        uint32_t stub = cpu.gate_for(HostCallId::from_raw(111)).v;
+        P p;
+        p.mov_ecx_imm(stub).call_ecx().raw({0xB8, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x00, 0x01, 0x00, 0x00, 0x00}).ret();   // mov eax, 4; mov [eax], 1
+        uint32_t payload = code.put(p.b);
+        g_handlers[111] = [handler, &memory = memory](GuestThread &t, GateFrame &f) {
+            ThreadBlock *tb = detail::block_of(t);
+            uint32_t reg = tb->host.stack_top - 12;
+            *memory.host<uint32_t>({reg}) = reg;
+            *memory.host<uint32_t>({reg + 4}) = handler;
+            tb->kpcr.NtTib.ExceptionList = reg;
+            stdcall_return(f, 0);
+        };
+        snap();
+        g_fatals = 0;
+        g_fatal = {};
+        GuestThread &t = GuestThread::spawn({payload}, std::span<const uint32_t>{}, SpawnOptions{0x10000, 8, false, 0});
+        HANDLE th = detail::thread_handle(t);
+        DWORD wait = WaitForSingleObject(th, 10000);
+        DWORD code_out = 0;
+        GetExitCodeThread(th, &code_out);
+        bool named = g_fatal.what.find("no handler on the fs:[0] chain took it") != std::string::npos &&
+                     g_fatal.what.find("write fault on 0x00000004") != std::string::npos;
+        std::string detail = format("wait=%lu exit=0x%lX fatals=%d handler calls=%u what='%s'", wait, code_out, g_fatals,
+                                    handler_calls, g_fatal.what.c_str());
+        return {wait == WAIT_OBJECT_0 && code_out == detail::kFatalExitCode && g_fatals == 1 && handler_calls == 1 && named,
+                detail};
+    }
+
     // Defect: a thread left suspended inside an MMIO access, holding the device's lock, or one never suspended once
     // it is outside.
     Result suspend_scope()
@@ -825,6 +864,7 @@ bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::stri
     report("trap-state", t.trap_state());
     report("spawn-exit", t.spawn_exit());
     report("thread-reuse", t.thread_reuse());
+    report("seh-bad-chain", t.seh_bad_chain());
     report("suspend-scope", t.suspend_scope());
     report("fault-gate", t.fault_gate());
     report("memory", t.memory_verbs());
