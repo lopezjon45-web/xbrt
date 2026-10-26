@@ -168,6 +168,13 @@ jobs:
         run: |
           python scripts/check-lab-run.py lab out/lab-second --expected expected-second.txt
           python scripts/check-save-layout.py lab-work/save/home/saves/xbrt FFFF0002 2
+      # The judges print only each failing run's last 200 lines; the whole runs are a few hundred KB.
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.labxbe.outcome == 'success'
+        with:
+          name: lab-runs
+          path: out/lab-*
+          retention-days: 3
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:
