@@ -1,0 +1,26 @@
+# Build output
+/gen/
+/pkg/
+/out/
+desktop-run/
+*.obj
+*.pdb
+*.exe
+*.appx
+*.pfx
+
+# Jon's game data and anything derived from it never enter the repository
+*.iso
+*.xiso
+*.xbe
+*.img
+survey.tsv
+coverage.md
+hits.tsv
+plan.bin
+
+# Console output and anything from the drive never enter the repository
+console/results/
+launch.txt
+run.txt
+shell.txt

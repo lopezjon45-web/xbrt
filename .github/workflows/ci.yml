@@ -1,0 +1,54 @@
+# Builds xbrt on windows-2022: the console package, the core tests, the desktop host and its run, the gates, and the
+# packages as prerelease assets. The macOS job was dropped (10x minutes); core/ is built on the Mac by hand with
+# scripts/build-mac.sh, which has no Windows SDK on its include path. windows-2022 is pinned:
+# windows-latest moved to Visual Studio 18 on 2026-10-25 and broke the UWP build line that starts on the console.
+# Packages are release assets, never workflow artifacts (the account's artifact quota was full the same night).
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Check the bridge status table against the fork
+        run: python scripts/gen-bridge-status.py external/xboxrecomp/src/kernel/kernel_bridge.c --check core/gen/bridge_status.inc
+      - name: No disc or console data, no per-title code
+        shell: bash
+        run: scripts/check-no-disc-data.sh && scripts/check-no-title-code.sh
+      # No uwp: true: the probes that start on the console build in this plain x64 environment, so xbrt does too.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build, test, gate, pack and sign
+        shell: powershell
+        run: .\build.ps1
+      - name: Run the desktop host
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force desktop-run | Out-Null
+          Set-Location desktop-run
+          ..\gen\xbrt_desktop.exe
+          Write-Output "exit $LASTEXITCODE"
+          Copy-Item run.txt ..\out\desktop-run.txt -ErrorAction SilentlyContinue
+      - name: Judge the desktop run
+        run: python scripts/check-desktop-run.py out/desktop-run.txt
+      - name: Publish the packages as a prerelease
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="build-${{ github.run_number }}"
+          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe \
+            --prerelease --title "xbrt build ${{ github.run_number }} ($(git rev-parse --short HEAD))" \
+            --notes "Run ${{ github.run_id }} of ${{ github.sha }}. Install LopezJon.XboxRuntime_*.appx; the XbrtBisect0..5 packages are the start-refusal ladder (package/make-manifests.py)."

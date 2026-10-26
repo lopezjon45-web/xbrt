@@ -1,0 +1,20 @@
+# Paths that must never be tracked, or visible to `git add -A`. One git pathspec glob per line, matched
+# case-insensitively from the repository root; `*` crosses directories. Read by scripts/check-no-disc-data.sh.
+*.iso
+*.xiso
+*.xbe
+*.img
+*.appx
+*.msix
+*.pfx
+*.key
+*.cer
+console/results/**
+run.txt
+shell.txt
+launch.txt
+survey.tsv
+hits.tsv
+plan.bin
+packages*.json
+screen*.png

@@ -1,0 +1,10 @@
+[submodule "external/XbSymbolDatabase"]
+	path = external/XbSymbolDatabase
+	url = https://github.com/Cxbx-Reloaded/XbSymbolDatabase
+[submodule "external/zydis"]
+	path = external/zydis
+	url = https://github.com/zyantific/zydis
+[submodule "external/xboxrecomp"]
+	path = external/xboxrecomp
+	url = https://github.com/lopezjon45-web/xboxrecomp
+	branch = one-s
