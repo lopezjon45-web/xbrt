@@ -33,5 +33,6 @@ for dir in "$lab"/*/; do
     "$cxbe" -OUT:"$out/$name/default.xbe" -TITLE:"xbrt lab: $name" "$obj/$name.exe" >/dev/null
     python3 -I "$lab/check-sites.py" "$dir/main.c" "$out/$name/default.xbe"
     if [ -d "$dir/disc" ]; then cp -R "$dir/disc/." "$out/$name/"; fi
+    if [ -f "$dir/make-disc.py" ]; then python3 -I "$dir/make-disc.py" "$out/$name"; fi
     echo "built $out/$name/default.xbe"
 done

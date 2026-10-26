@@ -10,6 +10,8 @@
 #include "host/cpu.h"
 #include "host/memory.h"
 
+#include "xbox/xbox_frontend.h"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -47,16 +49,18 @@ struct KernelSetup {
     GuestMemory *memory;
     MissingSink *sink;
     const Cpu *cpu;                  // null only where no override runs (the kernel tests)
-    std::u16string game_dir;         // D:\ : the extracted disc folder of a dir= link, resolved by the caller
-    std::u16string save_dir;         // the title's save partitions and caches
+    std::u16string game_dir;         // D:\ for a dir= link; with a disc volume, where the hard disk's other paths land
+    std::u16string scratch_dir;      // the title's cache and system partitions and the partition images
+    std::u16string saves_root;       // T:\ and U:\ are <saves_root>\<title id>\TDATA and ...\UDATA
+    uint32_t title_id;
+    const XboxDiscVolume *disc;      // D:\ read in place from a disc image; null for a dir= link
     GuestVa code_lo, code_hi;        // the image's code range, for the kernel's diagnostics
     const SymbolMap *symbols;        // names call sites in a Missing; may be null
     const XbeImage *xbe;             // the image `symbols` was scanned from; may be null
 };
 
-// Once per process, before the first guest call: keeps the setup, fills the kernel data page (in the runtime region)
-// and maps D:\ and the save folders. A disc image's D:\ needs the XISO volume, which a later unit brings; until then
-// an empty game_dir is an error that says so.
+// Once per process, before the first guest call: keeps the setup, fills the kernel data page (in the runtime region),
+// maps D:\ and the save folders, and makes the running title's TDATA and UDATA folders under the saves root.
 Parsed<void> kernel_install(const KernelSetup &setup);
 
 // The HostCallHandler given to Cpu::install.

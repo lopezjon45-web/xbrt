@@ -142,10 +142,19 @@ struct DesktopServices final : xbrt::ShellServices {
 };
 
 struct RunArgs {
-    std::filesystem::path dir;
+    std::filesystem::path dir;    // an extracted disc
+    std::filesystem::path disc;   // or a disc image
+    std::filesystem::path home;   // the link's home= (saves); empty for LocalState, the working directory here
     std::u16string xbe = u"\\default.xbe";
     unsigned seconds = 30;
 };
+
+bool is_disc_image(const std::filesystem::path &p)
+{
+    std::wstring ext = p.extension().wstring();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+    return ext == L".iso" || ext == L".xiso";
+}
 
 xbrt::Parsed<RunArgs> parse_run(int argc, char **argv)
 {
@@ -156,13 +165,20 @@ xbrt::Parsed<RunArgs> parse_run(int argc, char **argv)
     if (ec || !std::filesystem::exists(target)) return std::unexpected(std::string("--run: no such file or folder: ") + argv[2]);
     if (std::filesystem::is_directory(target)) {
         args.dir = target;
+    } else if (is_disc_image(target)) {
+        args.disc = target;
     } else {
         args.dir = target.parent_path();
         args.xbe = u"\\" + narrow16(target.filename().wstring());
     }
     for (int i = 3; i < argc; i += 2) {
         std::string flag = argv[i];
-        if (i + 1 >= argc) return std::unexpected("--run: " + flag + " needs a number");
+        if (i + 1 >= argc) return std::unexpected("--run: " + flag + " needs a value");
+        if (flag == "--home") {
+            args.home = std::filesystem::absolute(argv[i + 1], ec);
+            if (ec) return std::unexpected(std::string("--run: --home ") + argv[i + 1] + " is not a path");
+            continue;
+        }
         char *end = nullptr;
         unsigned long n = std::strtoul(argv[i + 1], &end, 10);
         if (!*argv[i + 1] || *end || n == 0) return std::unexpected("--run: " + flag + " needs a positive number");
@@ -198,6 +214,8 @@ int run_xbe(const RunArgs &args)
 
     xbrt::LaunchRequest request;
     request.dir_path = narrow16(args.dir.wstring());
+    request.disc_path = narrow16(args.disc.wstring());
+    request.home = narrow16(args.home.wstring());
     request.xbe = args.xbe;
     request.trace = xbrt::Trace::Kernel;
     DesktopServices services;
@@ -215,9 +233,10 @@ int run_xbe(const RunArgs &args)
 
 }  // namespace
 
-// xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests | --run <xbe or dir> [--seconds N]]: the stages
-// and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests write that suite's file;
-// --run boots that XBE with its folder as D:\.
+// xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests | --run <xbe, dir or .iso> [--seconds N]
+// [--home <dir>]]: the stages and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests
+// write that suite's file; --run boots that XBE with its folder as D:\, or an image's default.xbe with the image as D:\,
+// and keeps saves under <home>\saves\xbrt (default: the working directory, as LocalState).
 int main(int argc, char **argv)
 {
     const bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";

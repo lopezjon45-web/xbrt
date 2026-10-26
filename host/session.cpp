@@ -1,5 +1,6 @@
 #include "host/session.h"
 
+#include "core/disc_volume.h"
 #include "core/hle_table.h"
 #include "core/plan.h"
 #include "core/survey.h"
@@ -215,6 +216,7 @@ struct Session::State final : MissingSink {
     GuestMemory *memory = nullptr;
     std::unique_ptr<Source> image;
     DiscIndex disc;
+    std::unique_ptr<DiscVolume> volume;   // D:\ for a disc= link
     XbeImage xbe;
     SymbolMap symbols;
     TitlePlan plan;
@@ -517,7 +519,6 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
     if (Parsed<void> mapped = memory.map_image(s.xbe, file); !mapped) return failed(BootStage::MapImage, mapped.error());
     shell.stage(BootStage::MapImage, format("map 0x%08X +0x%X, %zu sections", s.xbe.base.v, s.xbe.image_size, s.xbe.sections.size()));
 
-    if (game_dir.empty()) return failed(BootStage::Kernel, "Feature: disc images need the XISO volume (U3); boot with dir=");
     CpuOptions options;
     options.trace_traps = request.trace == Trace::Traps;
     g_state = &s;
@@ -531,9 +532,19 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
     if (code_lo > code_hi) code_lo = code_hi;
     std::string title_id = s.xbe.title_id_hex();
     std::u16string title_id16(title_id.begin(), title_id.end());
-    std::u16string save_dir = request.home.empty() ? shell.data_root() + u"\\titles\\" + title_id16 : request.home + u"\\saves\\xbrt\\" + title_id16;
-    KernelSetup setup{&memory, &s, s.cpu, game_dir, save_dir, code_lo, code_hi, &s.symbols, &s.xbe};
+    // The title's cache partitions and device images stay in LocalState; its saves go where the link's home says
+    // (INTEGRATION.md section 2). The rest of the hard disk's paths land in the scratch folder when D:\ is the image.
+    std::u16string scratch_dir = shell.data_root() + u"\\titles\\" + title_id16;
+    std::u16string saves_root = (request.home.empty() ? shell.data_root() : request.home) + u"\\saves\\xbrt";
+    if (s.image) {
+        s.volume = std::make_unique<DiscVolume>(s.disc, *s.image);
+        game_dir = scratch_dir;
+    }
+    KernelSetup setup{&memory, &s, s.cpu, game_dir, scratch_dir, saves_root, s.xbe.cert.title_id,
+                      s.volume ? s.volume->volume() : nullptr, code_lo, code_hi, &s.symbols, &s.xbe};
     if (Parsed<void> installed = kernel_install(setup); !installed) return failed(BootStage::Kernel, installed.error());
+    shell.log("saves " + ascii_path(saves_root) + "\\" + title_id + ", scratch " + ascii_path(scratch_dir) +
+              (s.volume ? ", D:\\ read in place from the image" : ", D:\\ " + ascii_path(game_dir)));
     size_t data_slots = 0;
     for (const ImportSlot &slot : s.plan.imports) {
         GuestVa data = kernel_data_export(slot.ordinal);
@@ -601,6 +612,7 @@ ExitReason Session::run()
         }
     }
     ExitReason reason = s.exit_reason();
+    if (s.volume) s.shell->log(disc_cache_line(s.volume->cache_stats()));
     s.log_in_flight();
     if (reason == ExitReason::Fatal) s.write_crash();
     s.save_plan();

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Judges the desktop host's --run of each lab XBE against the lines the lab program must print.
 
-    check-lab-run.py <lab dir> <run dir> [--known-failure <name>]...
+    check-lab-run.py <lab dir> <run dir> [--known-failure <name>]... [--expected <file name>]
     check-lab-run.py --self-test
 
 <lab dir> holds <name>/expected.txt per lab (the source tree's lab/, or lab/build.sh's output). <run dir> holds
@@ -10,7 +10,8 @@ output that carry "lab <name> " (DbgPrint output may arrive behind a prefix) are
 order. On a failure the judge prints the difference, the boot stage that failed if one did, and the last 200 lines of
 the output.
 A --known-failure lab is judged and reported the same way but does not fail the run; one that passes does, so the
-flag is removed the moment the defect it names is fixed.
+flag is removed the moment the defect it names is fixed. --expected judges the labs that have that file instead of
+expected.txt (expected-second.txt: a second launch over the first one's saves).
 """
 import difflib
 import os
@@ -37,10 +38,10 @@ def judge(name, expected, output):
     return False, report
 
 
-def run(lab_dir, run_dir, known_failures=()):
-    names = sorted(p.parent.name for p in pathlib.Path(lab_dir).glob("*/expected.txt"))
+def run(lab_dir, run_dir, known_failures=(), expected_name="expected.txt"):
+    names = sorted(p.parent.name for p in pathlib.Path(lab_dir).glob(f"*/{expected_name}"))
     if not names:
-        print(f"no <name>/expected.txt under {lab_dir}")
+        print(f"no <name>/{expected_name} under {lab_dir}")
         return 1
     unknown = sorted(set(known_failures) - set(names))
     if unknown:
@@ -49,7 +50,7 @@ def run(lab_dir, run_dir, known_failures=()):
     failed = 0
     passed = 0
     for name in names:
-        expected = (pathlib.Path(lab_dir) / name / "expected.txt").read_text().splitlines()
+        expected = (pathlib.Path(lab_dir) / name / expected_name).read_text().splitlines()
         out_path = pathlib.Path(run_dir) / f"{name}.txt"
         output = out_path.read_text(encoding="utf-8", errors="replace") if out_path.exists() else None
         ok, report = judge(name, expected, output)
@@ -106,7 +107,16 @@ def self_test():
         if run(f"{d}/lab", f"{d}/run", ["nosuchlab"]) == 0:
             print("self-test FAIL: a known failure naming no lab is accepted")
             bad += 1
-    print(f"self-test: {len(cases) + 6 - bad}/{len(cases) + 6} pass")
+        pathlib.Path(f"{d}/lab/demo/expected-second.txt").write_text("\n".join(expected) + "\n")
+        pathlib.Path(f"{d}/run/demo.txt").write_text(passing)
+        if run(f"{d}/lab", f"{d}/run", expected_name="expected-second.txt") != 0:
+            print("self-test FAIL: --expected rejects a passing run")
+            bad += 1
+        pathlib.Path(f"{d}/lab/demo/expected-second.txt").write_text("lab demo second\n")
+        if run(f"{d}/lab", f"{d}/run", expected_name="expected-second.txt") == 0:
+            print("self-test FAIL: --expected judges against expected.txt")
+            bad += 1
+    print(f"self-test: {len(cases) + 8 - bad}/{len(cases) + 8} pass")
     return 1 if bad else 0
 
 
@@ -115,9 +125,13 @@ if __name__ == "__main__":
         sys.exit(self_test())
     args = sys.argv[1:]
     known = []
-    while len(args) >= 4 and args[-2] == "--known-failure":
-        known.append(args[-1])
+    expected_name = "expected.txt"
+    while len(args) >= 4 and args[-2] in ("--known-failure", "--expected"):
+        if args[-2] == "--expected":
+            expected_name = args[-1]
+        else:
+            known.append(args[-1])
         args = args[:-2]
     if len(args) != 2:
         sys.exit(__doc__)
-    sys.exit(run(args[0], args[1], known))
+    sys.exit(run(args[0], args[1], known, expected_name))

@@ -108,7 +108,13 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
     KernelSetup setup{&memory, &sink, &cpu,
                       std::u16string(reinterpret_cast<const char16_t *>(disc.wstring().c_str())),
                       std::u16string(reinterpret_cast<const char16_t *>(saves.wstring().c_str())),
-                      {}, {}, nullptr, nullptr};
+                      std::u16string(reinterpret_cast<const char16_t *>((saves / "saves").wstring().c_str())),
+                      0,
+                      nullptr,
+                      {},
+                      {},
+                      nullptr,
+                      nullptr};
     if (Parsed<void> installed = kernel_install(setup); !installed) {
         result("install", installed.error());
         return false;

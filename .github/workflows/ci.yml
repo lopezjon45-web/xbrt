@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 15
     env:
       NXDK_COMMIT: a6c31ee90540710a3df26a0712b61492f2ea03dd
+      EXTRACT_XISO_COMMIT: 3f5b62cfe68f000b0e3c8a30104973f3a297948e
     steps:
       - uses: actions/checkout@v4
       - name: Self-test the lab judge
@@ -32,12 +33,28 @@ jobs:
         run: sudo apt-get install -y -q --no-install-recommends clang-18 lld-18 llvm-18
       - name: Build the lab XBEs
         run: NXDK_DIR="$PWD/nxdk" LLVM_BIN=/usr/lib/llvm-18/bin bash lab/build.sh lab-xbe
+      # Every lab also runs from an XISO of its folder, so D:\ read in place answers as the folder does.
+      - name: Build an XISO of each lab
+        run: |
+          git init -q extract-xiso
+          git -C extract-xiso fetch -q --depth 1 https://github.com/XboxDev/extract-xiso.git "$EXTRACT_XISO_COMMIT"
+          git -C extract-xiso checkout -q FETCH_HEAD
+          cc -O2 -w -D__LINUX__ -o extract-xiso/extract-xiso extract-xiso/extract-xiso.c
+          mkdir -p lab-iso
+          for d in lab-xbe/*/; do extract-xiso/extract-xiso -q -m -c "$d" "lab-iso/$(basename "$d").iso"; done
+          ls -l lab-iso
       # An artifact, not a release asset: a branch run has no release, and the brief allows the public repo's
       # artifact storage for these few KB.
       - uses: actions/upload-artifact@v4
         with:
           name: lab-xbe
           path: lab-xbe
+          retention-days: 1
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lab-iso
+          path: lab-iso
           retention-days: 1
           if-no-files-found: error
 
@@ -106,23 +123,51 @@ jobs:
         with:
           name: lab-xbe
           path: lab-xbe
+      - name: Fetch the lab XISOs
+        id: labiso
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: lab-iso
+          path: lab-iso
+      # Each lab boots from its folder, then from its XISO; a lab with expected-second.txt boots its folder again over
+      # the first launch's saves. Saves go to <work>\home\saves\xbrt, as a hub link's home= puts them on the drive.
       - name: Run the lab XBEs
         if: steps.labxbe.outcome == 'success'
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force out\lab-run | Out-Null
-          foreach ($lab in Get-ChildItem lab-xbe -Directory) {
-            $work = "lab-work\$($lab.Name)"
+          foreach ($d in "out\lab-run", "out\lab-iso", "out\lab-second") { New-Item -ItemType Directory -Force $d | Out-Null }
+          function Run-Lab($work, $target, $log) {
             New-Item -ItemType Directory -Force $work | Out-Null
             Push-Location $work
-            cmd /c "..\..\gen\xbrt_desktop.exe --run ..\..\lab-xbe\$($lab.Name) --seconds 20 > ..\..\out\lab-run\$($lab.Name).txt 2>&1"
-            Write-Output "$($lab.Name): exit $LASTEXITCODE"
+            cmd /c "$root\gen\xbrt_desktop.exe --run $target --seconds 20 --home home > $log 2>&1"
+            Write-Output "${target}: exit $LASTEXITCODE"
             Pop-Location
+          }
+          $root = (Get-Location).Path
+          foreach ($lab in Get-ChildItem lab-xbe -Directory) {
+            Run-Lab "lab-work\$($lab.Name)" "$root\lab-xbe\$($lab.Name)" "$root\out\lab-run\$($lab.Name).txt"
+            if (Test-Path "lab\$($lab.Name)\expected-second.txt") {
+              Run-Lab "lab-work\$($lab.Name)" "$root\lab-xbe\$($lab.Name)" "$root\out\lab-second\$($lab.Name).txt"
+            }
+          }
+          if (Test-Path lab-iso) {
+            foreach ($iso in Get-ChildItem lab-iso -Filter *.iso) {
+              Run-Lab "lab-work-iso\$($iso.BaseName)" "$root\lab-iso\$($iso.Name)" "$root\out\lab-iso\$($iso.BaseName).txt"
+            }
           }
           exit 0
       - name: Judge the lab runs
         if: steps.labxbe.outcome == 'success'
         run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh
+      - name: Judge the lab runs from XISOs
+        if: steps.labxbe.outcome == 'success' && steps.labiso.outcome == 'success'
+        run: python scripts/check-lab-run.py lab out/lab-iso --known-failure seh
+      - name: Judge the second launches and where the saves landed
+        if: steps.labxbe.outcome == 'success'
+        run: |
+          python scripts/check-lab-run.py lab out/lab-second --expected expected-second.txt
+          python scripts/check-save-layout.py lab-work/save/home/saves/xbrt FFFF0002 2
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:

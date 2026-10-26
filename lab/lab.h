@@ -74,3 +74,28 @@ static inline LabLine lab_step_status(const char *what, NTSTATUS status)
     lab_put_hex(&l, (ULONG)status);
     return l;
 }
+
+static inline unsigned lab_strlen(const char *s)
+{
+    unsigned n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+
+// NtCreateFile for synchronous I/O, relative to `root` when it is not NULL.
+static inline NTSTATUS lab_open(HANDLE *file, HANDLE root, const char *path, ACCESS_MASK access, ULONG disposition,
+                                ULONG options)
+{
+    ANSI_STRING name;
+    name.Buffer = (PCHAR)path;
+    name.Length = (USHORT)lab_strlen(path);
+    name.MaximumLength = (USHORT)(name.Length + 1);
+    OBJECT_ATTRIBUTES attributes;
+    attributes.RootDirectory = root;
+    attributes.ObjectName = &name;
+    attributes.Attributes = OBJ_CASE_INSENSITIVE;
+    IO_STATUS_BLOCK io;
+    return NtCreateFile(file, access | SYNCHRONIZE, &attributes, &io, NULL, FILE_ATTRIBUTE_NORMAL,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE, disposition, options | FILE_SYNCHRONOUS_IO_NONALERT);
+}

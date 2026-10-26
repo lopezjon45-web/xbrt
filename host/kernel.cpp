@@ -27,6 +27,7 @@ int xbox_kernel_bridge_call(uint16_t ordinal);
 void xbox_kernel_data_init(void);
 uint32_t xbox_kernel_data_export(uint16_t ordinal);
 void xbox_path_init(const char *game_dir, const char *save_dir);
+void xbox_path_set_title(uint32_t title_id, const char *saves_root);
 // Read by the bridges' diagnostics and allocation paths; defined below.
 extern size_t g_xbox_total_ram;
 extern uint32_t g_xbox_code_lo, g_xbox_code_hi;
@@ -217,8 +218,8 @@ void report_missing(Missing m) noexcept
 Parsed<void> kernel_install(const KernelSetup &setup)
 {
     if (!setup.memory || !setup.sink) return std::unexpected("kernel: no guest memory or no sink");
-    if (setup.game_dir.empty())
-        return std::unexpected("kernel: D:\\ from a disc image needs the XISO volume, not built yet; boot with dir=");
+    if (setup.game_dir.empty() || setup.scratch_dir.empty() || setup.saves_root.empty())
+        return std::unexpected("kernel: no game, scratch or saves folder");
     g_setup = setup;
     GuestVa page = setup.memory->runtime_alloc(kKernelDataSize, kKernelDataSize, false);
     if (!page.v) return std::unexpected("kernel: no room for the kernel data page in the runtime region");
@@ -237,8 +238,8 @@ Parsed<void> kernel_install(const KernelSetup &setup)
         if (!out.empty()) out.pop_back();
         return out;
     };
-    std::string game = utf8(setup.game_dir), save = utf8(setup.save_dir);
-    xbox_path_init(game.c_str(), save.empty() ? nullptr : save.c_str());
+    xbox_path_init(utf8(setup.game_dir).c_str(), utf8(setup.scratch_dir).c_str());
+    xbox_path_set_title(setup.title_id, utf8(setup.saves_root).c_str());
     return {};
 }
 
@@ -319,7 +320,7 @@ extern "C" int xbox_frontend_va_mapped(uint32_t va, uint32_t bytes)
 
 extern "C" void xbox_frontend_return_to_hub(uint32_t reason) { g_setup.sink->return_to_hub(reason); }
 
-extern "C" const XboxDiscVolume *xbox_frontend_disc(void) { return nullptr; }
+extern "C" const XboxDiscVolume *xbox_frontend_disc(void) { return g_setup.disc; }
 
 // ---- What the fork's lifted-only files exported, over GuestMemory -------------------------------------------------
 
@@ -546,8 +547,8 @@ void xbox_log(int level, const char *subsystem, const char *fmt, ...)
     g_setup.sink->log(std::string("kernel ") + subsystem + ": " + text);
 }
 
-// Reached only through SHGetFolderPathW's stand-in when xbox_path_init has no save folder; kernel_install passes one
-// whenever the session has one, and the save folder is the data root the runtime writes.
-const wchar_t *xbox_shell_data_root(void) { return reinterpret_cast<const wchar_t *>(g_setup.save_dir.c_str()); }
+// Reached only through SHGetFolderPathW's stand-in when xbox_path_init has no save folder, which kernel_install always
+// passes.
+const wchar_t *xbox_shell_data_root(void) { return reinterpret_cast<const wchar_t *>(g_setup.scratch_dir.c_str()); }
 
 }  // extern "C"

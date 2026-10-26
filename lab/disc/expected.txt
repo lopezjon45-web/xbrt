@@ -1,0 +1,18 @@
+lab disc start
+lab disc ramp.bin size 200000
+lab disc read 65530+100 ok
+lab disc read 1000+196608 ok
+lab disc read at the file pointer ok
+lab disc position 197708
+lab disc read at the end 0xC0000011 0
+lab disc entry deep dir
+lab disc entry ramp.bin file 200000
+lab disc entry words.txt file 28
+lab disc entry count 3
+lab disc match words.txt file 28
+lab disc match count 1
+lab disc relative xbrt lab: a note one folder down
+lab disc words.txt size 28
+lab disc missing file 0xC0000034
+lab disc missing folder 0xC000003A
+lab disc ok
