@@ -28,6 +28,7 @@ void xbox_kernel_data_init(void);
 uint32_t xbox_kernel_data_export(uint16_t ordinal);
 void xbox_path_init(const char *game_dir, const char *save_dir);
 void xbox_path_set_title(uint32_t title_id, const char *saves_root);
+void xbox_app_guard_writes(const wchar_t *guarded, const wchar_t *const *allowed, int count);
 // Read by the bridges' diagnostics and allocation paths; defined below.
 extern size_t g_xbox_total_ram;
 extern uint32_t g_xbox_code_lo, g_xbox_code_hi;
@@ -238,6 +239,13 @@ Parsed<void> kernel_install(const KernelSetup &setup)
         if (!out.empty()) out.pop_back();
         return out;
     };
+    if (!setup.home.empty()) {
+        // INTEGRATION.md section 2: on the drive the runtime writes only its saves and its cache.
+        std::u16string saves = setup.home + u"\\saves\\xbrt", cache = setup.home + u"\\cache\\xbrt";
+        const wchar_t *allowed[] = {reinterpret_cast<const wchar_t *>(saves.c_str()),
+                                    reinterpret_cast<const wchar_t *>(cache.c_str())};
+        xbox_app_guard_writes(reinterpret_cast<const wchar_t *>(setup.home.c_str()), allowed, 2);
+    }
     xbox_path_init(utf8(setup.game_dir).c_str(), utf8(setup.scratch_dir).c_str());
     xbox_path_set_title(setup.title_id, utf8(setup.saves_root).c_str());
     return {};
