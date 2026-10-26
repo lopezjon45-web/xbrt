@@ -1,0 +1,2 @@
+lab privileged start
+lab privileged ok

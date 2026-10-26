@@ -12,10 +12,13 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 
@@ -122,11 +125,82 @@ struct DesktopServices final : xbrt::ShellServices {
     std::u16string data_root() override { return narrow16(std::filesystem::current_path().wstring()); }
 };
 
+struct RunArgs {
+    std::filesystem::path dir;
+    std::u16string xbe = u"\\default.xbe";
+    unsigned seconds = 30;
+};
+
+xbrt::Parsed<RunArgs> parse_run(int argc, char **argv)
+{
+    if (argc < 3) return std::unexpected("--run needs an XBE or a folder");
+    RunArgs args;
+    std::error_code ec;
+    std::filesystem::path target = std::filesystem::absolute(argv[2], ec);
+    if (ec || !std::filesystem::exists(target)) return std::unexpected(std::string("--run: no such file or folder: ") + argv[2]);
+    if (std::filesystem::is_directory(target)) {
+        args.dir = target;
+    } else {
+        args.dir = target.parent_path();
+        args.xbe = u"\\" + narrow16(target.filename().wstring());
+    }
+    for (int i = 3; i < argc; i += 2) {
+        std::string flag = argv[i];
+        if (i + 1 >= argc) return std::unexpected("--run: " + flag + " needs a number");
+        char *end = nullptr;
+        unsigned long n = std::strtoul(argv[i + 1], &end, 10);
+        if (!*argv[i + 1] || *end || n == 0) return std::unexpected("--run: " + flag + " needs a positive number");
+        if (flag == "--seconds") args.seconds = unsigned(n);
+        else if (flag == "--frames") return std::unexpected("--run: --frames counts presented frames, and U2 attaches no video device");
+        else return std::unexpected("--run: unknown option " + flag);
+    }
+    return args;
+}
+
+void end_run_after(unsigned seconds)
+{
+    std::thread([seconds] {
+        std::this_thread::sleep_for(std::chrono::seconds(seconds));
+        line("run FAIL timeout after " + std::to_string(seconds) + " s");
+        line("END");
+        std::fflush(nullptr);
+        TerminateProcess(GetCurrentProcess(), 3);
+    }).detach();
+}
+
+int run_xbe(const RunArgs &args)
+{
+    xbrt::Parsed<std::unique_ptr<xbrt::GuestMemory>> memory = xbrt::GuestMemory::reserve(xbrt::RamSize::Retail64);
+    if (!memory) {
+        line(memory.error());
+        line("END");
+        return 1;
+    }
+    for (const std::string &s : (*memory)->log()) line(s);
+
+    end_run_after(args.seconds);
+
+    xbrt::LaunchRequest request;
+    request.dir_path = narrow16(args.dir.wstring());
+    request.xbe = args.xbe;
+    DesktopServices services;
+    std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, services);
+    if (!session) {
+        line("END");
+        return 1;
+    }
+    // Stub until U2 workstreams A (host/cpu) and B (host/kernel.cpp) land. Then: map the image, link the kernel, map a
+    // loopback PortDevice at port 0x80 (lab/privileged), call the entry on thread 0, return at HalReturnToFirmware.
+    services.fail(xbrt::BootStage::Start, "guest execution is not wired into --run yet (U2 workstreams A and B)");
+    line("END");
+    return 1;
+}
+
 }  // namespace
 
-// xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests]: the stages and probes; with --survey, the survey
-// over a folder of images instead, writing survey.tsv beside run.txt; with --cpu-tests or --kernel-tests, that suite,
-// written to cpu-tests.txt or kernel-tests.txt.
+// xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests | --run <xbe or dir> [--seconds N]]: the stages
+// and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests write that suite's file;
+// --run boots that XBE with its folder as D:\.
 int main(int argc, char **argv)
 {
     const bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";
@@ -134,6 +208,15 @@ int main(int argc, char **argv)
     const char *log_name = cpu_tests ? "cpu-tests.txt" : kernel_tests ? "kernel-tests.txt" : "run.txt";
     g_run = std::fopen(log_name, "w");
     if (!g_run) std::fprintf(stderr, "cannot open %s\n", log_name);
+    if (argc >= 2 && std::string(argv[1]) == "--run") {
+        xbrt::Parsed<RunArgs> args = parse_run(argc, argv);
+        if (!args) {
+            line("run FAIL " + args.error());
+            line("END");
+            return 1;
+        }
+        return run_xbe(*args);
+    }
     if (argc == 3 && std::string(argv[1]) == "--survey") {
         DesktopServices services;
         std::string folder = argv[2];

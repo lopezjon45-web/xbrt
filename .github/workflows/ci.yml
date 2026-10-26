@@ -13,7 +13,38 @@ permissions:
   contents: write
 
 jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NXDK_COMMIT: a6c31ee90540710a3df26a0712b61492f2ea03dd
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the lab judge
+        run: python3 scripts/check-lab-run.py --self-test
+      - name: Fetch nxdk
+        run: |
+          git init -q nxdk
+          git -C nxdk fetch -q --depth 1 https://github.com/XboxDev/nxdk.git "$NXDK_COMMIT"
+          git -C nxdk checkout -q FETCH_HEAD
+          git -C nxdk submodule update -q --init --depth 1 lib/pdclib
+      - name: Install LLVM 18
+        run: sudo apt-get install -y -q --no-install-recommends clang-18 lld-18 llvm-18
+      - name: Build the lab XBEs
+        run: NXDK_DIR="$PWD/nxdk" LLVM_BIN=/usr/lib/llvm-18/bin bash lab/build.sh lab-xbe
+      # An artifact, not a release asset: a branch run has no release, and the brief allows the public repo's
+      # artifact storage for these few KB.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lab-xbe
+          path: lab-xbe
+          retention-days: 1
+          if-no-files-found: error
+
   windows:
+    needs: lab
+    # A broken lab build must not cost the console package: the lab steps below skip when the XBEs are missing.
+    if: ${{ !cancelled() }}
     runs-on: windows-2022
     timeout-minutes: 40
     steps:
@@ -68,6 +99,33 @@ jobs:
           Copy-Item kernel-tests.txt ..\out\kernel-tests.txt -ErrorAction SilentlyContinue
       - name: Judge the kernel adapter tests
         run: python scripts/check-kernel-tests.py out/kernel-tests.txt
+      - name: Fetch the lab XBEs
+        id: labxbe
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: lab-xbe
+          path: lab-xbe
+      - name: Run the lab XBEs
+        if: steps.labxbe.outcome == 'success'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force out\lab-run | Out-Null
+          foreach ($lab in Get-ChildItem lab-xbe -Directory) {
+            $work = "lab-work\$($lab.Name)"
+            New-Item -ItemType Directory -Force $work | Out-Null
+            Push-Location $work
+            cmd /c "..\..\gen\xbrt_desktop.exe --run ..\..\lab-xbe\$($lab.Name) --seconds 20 > ..\..\out\lab-run\$($lab.Name).txt 2>&1"
+            Write-Output "$($lab.Name): exit $LASTEXITCODE"
+            Pop-Location
+          }
+          exit 0
+      # continue-on-error until U2 workstreams A (host/cpu) and B (host/kernel.cpp) land: until then --run stops at
+      # the start stage, so every lab fails by design.
+      - name: Judge the lab runs
+        if: steps.labxbe.outcome == 'success'
+        continue-on-error: true
+        run: python scripts/check-lab-run.py lab out/lab-run
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:
