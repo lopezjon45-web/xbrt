@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace xbrt {
@@ -493,6 +494,27 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
                                 c.at(second + 4) != first || c.at(second) != head))
             failure = "list head " + hex(c.at(head)) + "/" + hex(c.at(head + 4)) + " is not head -> first -> second";
         result("ExfInterlockedInsertTailList", failure);
+    }
+    {
+        // The clocks a title reads as data keep time: KeTickCount in milliseconds, KeInterruptTime and KeSystemTime
+        // (KSYSTEM_TIME: LowPart, High1Time, High2Time) in 100 ns units.
+        auto read = [&](uint16_t ordinal) {
+            GuestVa va = kernel_data_export({ordinal});
+            const uint32_t *p = memory.host<const uint32_t>(va);
+            return ordinal == 156 ? uint64_t(p[0]) : (uint64_t(p[1]) << 32) | p[0];
+        };
+        uint64_t tick = read(156), interrupt = read(120), system = read(154);
+        Sleep(100);
+        uint64_t tick_ms = read(156) - tick, interrupt_ms = (read(120) - interrupt) / 10000,
+                 system_ms = (read(154) - system) / 10000;
+        std::string failure;
+        const std::pair<const char *, uint64_t> moved[] = {
+            {"KeTickCount", tick_ms}, {"KeInterruptTime", interrupt_ms}, {"KeSystemTime", system_ms}};
+        for (auto [name, ms] : moved)
+            if (ms < 50 || ms > 1000)
+                failure += std::string(failure.empty() ? "" : ", ") + name + " moved " + std::to_string(ms) + " ms";
+        if (!failure.empty()) failure += " across a 100 ms sleep";
+        result("clocks", failure);
     }
     result("usb-pad", usb_pad_enumerates(memory));
     return all;
