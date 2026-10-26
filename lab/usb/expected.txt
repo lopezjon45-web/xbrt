@@ -1,0 +1,4 @@
+lab usb start
+lab usb controller 0 revision 0x00000010
+lab usb controller 1 revision 0x00000010
+lab usb ok

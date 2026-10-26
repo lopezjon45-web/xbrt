@@ -553,7 +553,7 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
                                           skipped.size()));
 
     shell.attach_devices(*s.cpu);
-    shell.stage(BootStage::Devices, "devices none (the APU, OHCI and NV2A come with U4 and U5)");
+    shell.stage(BootStage::Devices, attach_devices(*s.cpu));
 
     uint32_t tls_size = s.xbe.tls_block_size();
     uint32_t stack = std::max(s.xbe.stack_commit, kMainStackSize);

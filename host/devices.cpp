@@ -1,13 +1,27 @@
-// The device models. None is registered yet: the APU, OHCI and NV2A arrive with U4 and U5, each as an MmioDevice on
-// Cpu::map_mmio. Until then the kernel bridges' questions about devices get the answer for a console with none of
-// them, and a register access is a named Missing.
+// The device models, each an MmioDevice on Cpu::map_mmio. The two USB host controllers are the fork's OHCI model;
+// the NV2A and the APU arrive with U4 and U5, and until then the kernel bridges' questions about them get the answer
+// for a console without them, and a register access is a named Missing.
 #include "host/kernel.h"
 
+#include "core/devices.h"
+
 #include <windows.h>
+#include <xinput.h>
 
 #include <cstdio>
 
+extern "C" {
+void xbox_OhciAttach(void);
+uint32_t xbox_OhciRead(uint32_t xbox_va, unsigned size);
+void xbox_OhciWrite(uint32_t xbox_va, unsigned size, uint32_t value);
+}
+
 namespace {
+
+struct Ohci final : xbrt::MmioDevice {
+    uint32_t read(xbrt::GuestVa addr, unsigned size) override { return xbox_OhciRead(addr.v, size); }
+    void write(xbrt::GuestVa addr, unsigned size, uint32_t value) override { xbox_OhciWrite(addr.v, size, value); }
+};
 
 void register_access(const char *verb, uint32_t va, bool stop)
 {
@@ -18,9 +32,26 @@ void register_access(const char *verb, uint32_t va, bool stop)
 
 }  // namespace
 
+std::string xbrt::attach_devices(Cpu &cpu)
+{
+    static Ohci ohci;
+    xbox_OhciAttach();
+    for (std::string_view name : {"USB0 OHCI", "USB1 OHCI"})
+        for (const DeviceAperture &d : kDeviceApertures)
+            if (d.name == name) cpu.map_mmio({{d.base}, d.size}, ohci);
+    return "devices USB0 and USB1 OHCI, a pad on game port 1 with no input source yet (U6); no NV2A or APU (U4, U5)";
+}
+
 extern "C" {
 
 int xbox_frontend_nv2a_attached(void) { return 0; }
+
+// The pads' source is the shell's Windows.Gaming.Input with U6; until then every slot reads as empty.
+int xbox_shell_pad_read(unsigned, XINPUT_GAMEPAD *) { return 0; }
+void xbox_shell_pad_rumble(unsigned, unsigned short, unsigned short) {}
+
+// No keyboard: the console has none.
+int xbox_FramebufferKeyDown(int) { return 0; }
 
 // No APU: its interrupt line is never up.
 int xbox_ApuIrqPending(void) { return 0; }

@@ -332,6 +332,11 @@ uint32_t g_xbox_code_lo, g_xbox_code_hi;
 
 ptrdiff_t xbox_GetMemoryOffset(void) { return 0; }
 
+// Guest VA == physical address for user RAM, and the contiguous view aliases every physical page at 0x80000000 + pa,
+// so a device's DMA address always has that guest address.
+uint32_t xbox_PhysicalToVirtual(uint32_t pa) { return pa < g_xbox_total_ram ? 0x80000000u + pa : 0; }
+size_t xbox_GetMappedSize(void) { return g_xbox_total_ram; }
+
 int guest_vmem_active(void) { return 1; }
 
 int guest_vmem_allocate(uint32_t *base, uint32_t *size, uint32_t alloc_type, uint32_t protect, uint32_t *status)

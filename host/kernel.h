@@ -68,4 +68,7 @@ GuestVa kernel_data_export(Ordinal o);
 // For the device answers in host/devices.cpp: reports through the installed sink.
 void report_missing(Missing m) noexcept;
 
+// The Devices stage: maps every device model's registers on `cpu` and starts its threads. Returns the stage line.
+std::string attach_devices(Cpu &cpu);
+
 }  // namespace xbrt

@@ -54,6 +54,7 @@ New-Item -ItemType Directory -Force gen\fork | Out-Null
 $fork = "external\xboxrecomp"
 $liftedOnly = Get-Content "$fork\src\kernel\lifted-only.txt"
 $forkSources = @(Get-ChildItem "$fork\src\kernel\*.c" | Where-Object { $liftedOnly -notcontains $_.Name } | ForEach-Object { $_.FullName }) +
+    @(Get-ChildItem "$fork\src\usb\*.c", "$fork\src\input\*.c" | ForEach-Object { $_.FullName }) +
     @((Get-Item "$fork\src\platform\app_partition.c").FullName)
 Run cl.exe ($cflags + @("/DUNICODE", "/D_UNICODE", "/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP", "/D_CRT_USE_WINAPI_FAMILY_DESKTOP_APP",
     "/DXBOXRECOMP_UWP=1", "/DXBOXRECOMP_FRONTEND_DIRECT=1", "/FI$root\$fork\src\platform\app_partition.h",
