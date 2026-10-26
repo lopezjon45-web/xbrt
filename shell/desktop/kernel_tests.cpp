@@ -343,6 +343,32 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
         result("noop", failure);
     }
     {
+        // A bridge whose layer-A callee does nothing is a stub too: masking an interrupt line is refused, not faked.
+        Call c(memory, stack);
+        sink.seen.clear();
+        c.run({39}, {3});
+        std::string failure;
+        if (c.frame.eip != kReturnAddress || c.frame.esp != c.esp || c.frame.eax != kUntouched)
+            failure = "frame changed: eip=" + hex(c.frame.eip) + " esp=" + hex(c.frame.esp) + " eax=" + hex(c.frame.eax);
+        else if (sink.seen.size() != 1 || !sink.seen[0].stop ||
+                 sink.seen[0].what != "Kernel export 0x027 HalDisableSystemInterrupt (39) is a stub in the kernel bridges")
+            failure = std::to_string(sink.seen.size()) + " reports, first '" + (sink.seen.empty() ? "" : sink.seen[0].what) + "'";
+        result("idle-stub", failure);
+    }
+    {
+        // A raise the runtime cannot dispatch to the title's handlers is a named stop, not a return as if handled.
+        Call c(memory, stack);
+        sink.seen.clear();
+        uint32_t record = c.reserve(0x50);
+        c.at(record) = 0xE06D7363;   // the C++ runtime's exception code
+        c.run({302}, {record});
+        std::string failure;
+        if (sink.seen.size() != 1 || !sink.seen[0].stop || sink.seen[0].kind != MissingKind::KernelExport ||
+            sink.seen[0].what.rfind("RtlRaiseException(0xE06D7363)", 0) != 0 || sink.seen[0].where.v != kReturnAddress)
+            failure = std::to_string(sink.seen.size()) + " reports, first '" + (sink.seen.empty() ? "" : sink.seen[0].what) + "'";
+        result("raise-refused", failure);
+    }
+    {
         // No bridge: a stop that names the export and the call site, and nothing written to the guest's registers.
         Call c(memory, stack);
         sink.seen.clear();
