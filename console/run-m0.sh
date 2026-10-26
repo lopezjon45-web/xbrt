@@ -148,13 +148,15 @@ say "== $MAIN_NAME $version, M0 probe (console about to be used)"
 install_identity "$main_appx"
 find_installed "$MAIN_NAME"
 
+# The warm-up must not boot the last run's link (run-u0.sh's rule): its launchOnExit would switch the TV to the hub.
+del_file "$P_FULL" '\LocalState' launch.txt 2>/dev/null && say "removed the last run's launch.txt before the warm-up" || true
 say "warm-up start and stop"
 lease_ok || die "the lease was taken back before the warm-up"
 start_once "$OUT/warmup-start-response.txt" || say "warm-up start refused (see $OUT/warmup-start-response.txt)"
 sleep 8
 stop_once
 sleep 3
-for f in run.txt m0.tsv launch.txt; do del_file "$P_FULL" '\LocalState' "$f" || true; done
+for f in run.txt m0.tsv; do del_file "$P_FULL" '\LocalState' "$f" || true; done
 printf 'm0-probe\n' > "$OUT/launch.txt"
 put_file "$P_FULL" '\LocalState' "$OUT/launch.txt" launch.txt && say "launch.txt written (m0-probe)"
 

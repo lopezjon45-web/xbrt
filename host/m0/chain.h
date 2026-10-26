@@ -20,8 +20,8 @@ struct StepTimes {
 struct Compiled {
     std::string hlsl;
     std::vector<uint8_t> dxbc;
-    std::vector<uint32_t> input_locations;
-    std::string rewrites;   // the D3D rewrites applied to the GLSL, comma-separated; empty when none   // vertex shaders: the locations SPIRV-Cross made TEXCOORD<n> inputs
+    std::vector<uint32_t> input_locations;   // vertex shaders: the locations SPIRV-Cross made TEXCOORD<n> inputs
+    std::string rewrites;                    // the D3D rewrites applied, comma-separated; empty when none
     StepTimes ms;
 };
 
