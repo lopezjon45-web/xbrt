@@ -1,0 +1,5 @@
+# The vendored upstream trees are compared byte for byte against their pins (tools/xemu-vendor.py check): no
+# end-of-line conversion on a Windows checkout.
+external/xemu/** -text
+external/nv2a_vsh_cpu/** -text
+external/libsamplerate/** -text
