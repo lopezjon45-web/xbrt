@@ -266,6 +266,126 @@ std::vector<uint8_t> emit_id_stub(uint16_t id, uint32_t ptr_full_gate64)
     return a.b;
 }
 
+// The guest side of exception dispatch, 32-bit code entered with [esp] = &EXCEPTION_RECORD, [esp+4] = &CONTEXT (Xbox
+// layout, FloatSave 16-aligned), [esp+8] = the KPCR and [esp+12] = the highest address a registration may reach (the
+// stack base, or where a host call's nested guest call began: the registrations above belong to the code that made
+// the host call, and their handlers would jump out of it). It walks fs:[0] as the Xbox kernel's RtlDispatchException
+// does: each registration that climbs and lies in those bounds gets handler(record, registration, context,
+// &dispatcher context), cdecl, behind a registration of the dispatcher's own (`nested`), as RtlpExecuteHandler2 puts
+// one there: the C++ runtime's unwinder relinks the head it finds, and an exception inside a handler is told it is
+// nested and skips the frames whose handler is running. ContinueSearch moves on; NestedException moves past the frame
+// the dispatcher context names; ContinueExecution loads the CONTEXT, which the handler may have changed, and resumes
+// there. The end of the chain, a bad registration, any other disposition or a noncontinuable exception jumps to
+// `unhandled` with esp back at the arguments; the trap router turns its ud2 into the stop the exception would have been.
+std::vector<uint8_t> emit_seh_dispatch(uint32_t nested, uint32_t unhandled)
+{
+    X64 a;
+    std::vector<size_t> to_fail;
+    auto jcc_fail = [&](uint8_t cc) {
+        a.bytes({0x0F, cc});
+        to_fail.push_back(a.b.size());
+        a.u32(0);
+    };
+    auto rel8_here = [&](size_t at) { a.b[at] = uint8_t(a.b.size() - (at + 1)); };
+    a.bytes({0x8B, 0x1C, 0x24});         // mov ebx, [esp]        record
+    a.bytes({0x8B, 0x74, 0x24, 0x04});   // mov esi, [esp+4]      context
+    a.bytes({0x8B, 0x7C, 0x24, 0x08});   // mov edi, [esp+8]      KPCR
+    a.bytes({0x6A, 0x00});               // push 0                [esp+4]: dispatcher context
+    a.bytes({0x6A, 0x00});               // push 0                [esp]: the last registration walked
+    a.bytes({0x8B, 0x2F});               // mov ebp, [edi]        ExceptionList
+    size_t next = a.b.size();
+    a.bytes({0x83, 0xFD, 0xFF});         // cmp ebp, -1
+    jcc_fail(0x84);                      // je
+    a.bytes({0xF7, 0xC5, 3, 0, 0, 0});   // test ebp, 3
+    jcc_fail(0x85);                      // jne
+    a.bytes({0x3B, 0x2C, 0x24});         // cmp ebp, [esp]        climbing (0 is never above the last)
+    jcc_fail(0x86);                      // jbe
+    a.bytes({0x3B, 0x6F, 0x08});         // cmp ebp, [edi+8]      StackLimit
+    jcc_fail(0x82);                      // jb
+    a.bytes({0x8D, 0x45, 0x08});         // lea eax, [ebp+8]
+    a.bytes({0x3B, 0x44, 0x24, 0x14});   // cmp eax, [esp+20]     the bound
+    jcc_fail(0x87);                      // ja
+    a.bytes({0x89, 0x2C, 0x24});         // mov [esp], ebp
+    a.byte(0x55);                        // push ebp              nested registration: establisher
+    a.byte(0x68);                        // push nested           handler
+    a.u32(nested);
+    a.bytes({0xFF, 0x37});               // push dword [edi]      next
+    a.bytes({0x89, 0x27});               // mov [edi], esp
+    a.bytes({0x8D, 0x44, 0x24, 0x10});   // lea eax, [esp+16]     &dispatcher context
+    a.bytes({0x50, 0x56, 0x55, 0x53});   // push eax; push esi; push ebp; push ebx
+    a.bytes({0xFF, 0x55, 0x04});         // call [ebp+4]
+    a.bytes({0x83, 0xC4, 0x10});         // add esp, 16
+    a.bytes({0x8B, 0x0C, 0x24});         // mov ecx, [esp]
+    a.bytes({0x89, 0x0F});               // mov [edi], ecx        unlink the nested registration
+    a.bytes({0x83, 0xC4, 0x0C});         // add esp, 12
+    a.bytes({0x85, 0xC0});               // test eax, eax         ExceptionContinueExecution
+    a.bytes({0x74, 0x00});               // je resume
+    size_t to_resume = a.b.size() - 1;
+    a.bytes({0x83, 0xF8, 0x01});         // cmp eax, 1            ExceptionContinueSearch
+    a.bytes({0x74, 0x00});               // je search_on
+    size_t to_search_on = a.b.size() - 1;
+    a.bytes({0x83, 0xF8, 0x02});         // cmp eax, 2            ExceptionNestedException
+    jcc_fail(0x85);                      // jne
+    a.bytes({0x83, 0x4B, 0x04, 0x10});   // or dword [ebx+4], EXCEPTION_NESTED_CALL
+    a.bytes({0x8B, 0x6C, 0x24, 0x04});   // mov ebp, [esp+4]      the frame whose handler is running
+    a.bytes({0x89, 0x2C, 0x24});         // mov [esp], ebp
+    rel8_here(to_search_on);
+    a.bytes({0x8B, 0x6D, 0x00});         // mov ebp, [ebp]
+    a.byte(0xE9);                        // jmp next
+    a.u32(uint32_t(int32_t(next) - int32_t(a.b.size() + 4)));
+    rel8_here(to_resume);
+    a.bytes({0xF6, 0x43, 0x04, 0x01});   // test byte [ebx+4], EXCEPTION_NONCONTINUABLE
+    jcc_fail(0x85);                      // jne
+    a.bytes({0x0F, 0xAE, 0x4E, 0x04});   // fxrstor [esi+4]
+    a.bytes({0x8B, 0x86}); a.u32(offsetof(XboxContext, Esp));      // mov eax, [esi+Esp]
+    a.bytes({0x83, 0xE8, 0x08});                                   // sub eax, 8
+    a.bytes({0x8B, 0x8E}); a.u32(offsetof(XboxContext, EFlags));   // mov ecx, [esi+EFlags]
+    a.bytes({0x89, 0x08});                                         // mov [eax], ecx
+    a.bytes({0x8B, 0x8E}); a.u32(offsetof(XboxContext, Eip));      // mov ecx, [esi+Eip]
+    a.bytes({0x89, 0x48, 0x04});                                   // mov [eax+4], ecx
+    a.bytes({0x89, 0xC4});                                         // mov esp, eax
+    a.bytes({0x8B, 0xBE}); a.u32(offsetof(XboxContext, Edi));      // mov edi, [esi+Edi]
+    a.bytes({0x8B, 0x9E}); a.u32(offsetof(XboxContext, Ebx));      // mov ebx, [esi+Ebx]
+    a.bytes({0x8B, 0x96}); a.u32(offsetof(XboxContext, Edx));      // mov edx, [esi+Edx]
+    a.bytes({0x8B, 0x8E}); a.u32(offsetof(XboxContext, Ecx));      // mov ecx, [esi+Ecx]
+    a.bytes({0x8B, 0x86}); a.u32(offsetof(XboxContext, Eax));      // mov eax, [esi+Eax]
+    a.bytes({0x8B, 0xAE}); a.u32(offsetof(XboxContext, Ebp));      // mov ebp, [esi+Ebp]
+    a.bytes({0x8B, 0xB6}); a.u32(offsetof(XboxContext, Esi));      // mov esi, [esi+Esi]
+    a.byte(0x9D);                                                  // popfd
+    a.byte(0xC3);                                                  // ret
+    size_t fail = a.b.size();
+    a.bytes({0x83, 0xC4, 0x08});         // add esp, 8            back at the arguments
+    a.byte(0xB8);                        // mov eax, unhandled
+    a.u32(unhandled);
+    a.bytes({0xFF, 0xE0});               // jmp eax
+    for (size_t at : to_fail) {
+        uint32_t rel = uint32_t(int32_t(fail) - int32_t(at + 4));
+        for (int i = 0; i < 4; i++) a.b[at + i] = uint8_t(rel >> (8 * i));
+    }
+    return a.b;
+}
+
+// The handler of the registration the dispatcher puts around each handler it calls (RtlpExceptionHandler): an
+// unwind passes it by; an exception raised while that handler runs is nested, and the dispatcher context names the
+// frame being handled so the nested dispatch searches past it.
+std::vector<uint8_t> emit_seh_nested()
+{
+    return {
+        0x8B, 0x4C, 0x24, 0x04,               // mov ecx, [esp+4]      record
+        0xB8, 0x01, 0x00, 0x00, 0x00,         // mov eax, 1            ExceptionContinueSearch
+        0xF7, 0x41, 0x04, 0x06, 0, 0, 0,      // test dword [ecx+4], EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND
+        0x75, 0x0F,                           // jne done
+        0x8B, 0x4C, 0x24, 0x08,               // mov ecx, [esp+8]      this registration
+        0x8B, 0x54, 0x24, 0x10,               // mov edx, [esp+16]     &dispatcher context
+        0x8B, 0x49, 0x08,                     // mov ecx, [ecx+8]      its establisher
+        0x89, 0x0A,                           // mov [edx], ecx
+        0xB0, 0x02,                           // mov al, 2             ExceptionNestedException
+        0xC3,                                 // done: ret
+    };
+}
+
+std::vector<uint8_t> emit_seh_unhandled() { return {0x0F, 0x0B}; }   // ud2
+
 std::vector<uint8_t> emit_dm_notify() { return {0x33, 0xC0, 0xC2, 0x08, 0x00}; }   // xor eax,eax; ret 8
 
 std::vector<uint8_t> emit_fault_gate()

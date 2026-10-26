@@ -196,12 +196,12 @@ std::string guest_text(uint32_t va, size_t max)
 std::string counters_line(const CpuCounters &now, const CpuCounters &before)
 {
     return format("counters gates/s=%llu guest_calls=%llu traps fs=%llu mmio=%llu port=%llu rdtsc=%llu privileged=%llu "
-                  "patch_wait=%llu promoted eager=%llu learned=%llu fs_unpromotable=%llu threads=%u",
+                  "patch_wait=%llu delivered=%llu promoted eager=%llu learned=%llu fs_unpromotable=%llu threads=%u",
                   static_cast<unsigned long long>(now.gate_calls - before.gate_calls), static_cast<unsigned long long>(now.guest_calls),
                   static_cast<unsigned long long>(now.traps_fs), static_cast<unsigned long long>(now.traps_mmio),
                   static_cast<unsigned long long>(now.traps_port), static_cast<unsigned long long>(now.traps_rdtsc),
                   static_cast<unsigned long long>(now.traps_privileged), static_cast<unsigned long long>(now.traps_patch_wait),
-                  static_cast<unsigned long long>(now.sites_promoted_eager), static_cast<unsigned long long>(now.sites_promoted_learned),
+                  static_cast<unsigned long long>(now.traps_delivered), static_cast<unsigned long long>(now.sites_promoted_eager), static_cast<unsigned long long>(now.sites_promoted_learned),
                   static_cast<unsigned long long>(now.fs_unpromotable), now.live_guest_threads);
 }
 

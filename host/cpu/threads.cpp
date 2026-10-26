@@ -235,6 +235,9 @@ Cpu &Cpu::install(GuestMemory &memory, HostCallHandler on_host_call, FatalSink o
     g.unwind64 = put(emit_unwind64(g.exit64));
     g.dm_notify = put(emit_dm_notify());
     g.fault_gate = put(emit_fault_gate());
+    g.seh_unhandled = put(emit_seh_unhandled());
+    g.seh_nested = put(emit_seh_nested());
+    g.seh_dispatch = put(emit_seh_dispatch(g.seh_nested, g.seh_unhandled));
     {
         std::lock_guard<std::mutex> hold(s->patch_lock);
         g.ptr_exit64 = write_far_pointer(g.exit64, hold);
@@ -299,7 +302,7 @@ CpuCounters Cpu::counters() const
 {
     CpuState &s = *g_cpu;
     return {s.gate_calls, s.guest_calls, s.traps_fs, s.traps_mmio, s.traps_port, s.traps_rdtsc, s.traps_privileged,
-            s.traps_patch_wait, s.sites_promoted_eager, s.sites_promoted_learned, s.fs_unpromotable, s.live_guest_threads};
+            s.traps_patch_wait, s.traps_delivered, s.sites_promoted_eager, s.sites_promoted_learned, s.fs_unpromotable, s.live_guest_threads};
 }
 
 uint64_t Cpu::guest_tsc() const { return guest_tsc_now(); }
@@ -373,6 +376,7 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
     ThreadBlock *tb = block_;
     HostPart &h = tb->host;
     uint32_t esp = h.depth == 0 ? h.stack_top - 16 : (h.guest_esp - kCallGap) & ~15u;
+    const uint32_t start = esp;
     uint32_t ecx = 0, edx = 0;
     size_t first_on_stack = 0;
     switch (conv) {
@@ -394,10 +398,13 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
     esp -= 4;
     *reinterpret_cast<uint32_t *>(host(esp)) = g_cpu->gates.exit32;
     EntryState st{esp, va.v, ecx, edx};
+    uint32_t outer_call_esp = h.call_esp;
+    if (h.depth) h.call_esp = start;
     h.depth++;
     g_cpu->guest_calls++;
     uint64_t r = reinterpret_cast<EnterFn>(static_cast<uintptr_t>(g_cpu->gates.enter64))(tb, &st);
     h.depth--;
+    h.call_esp = outer_call_esp;
     if (h.exited && h.depth == 0) {
         // exit() or a fatal trap unwound to this base frame: the host thread ends here (the main thread included).
         uint32_t code = h.exit_code;

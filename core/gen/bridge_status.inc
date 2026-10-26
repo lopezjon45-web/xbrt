@@ -302,7 +302,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 299 bridge_RtlMultiByteToUnicodeN
     BridgeStatus::Full,   // 300 bridge_RtlMultiByteToUnicodeSize
     BridgeStatus::Full,   // 301 bridge_RtlNtStatusToDosError
-    BridgeStatus::Partial,   // 302 bridge_RtlRaiseException
+    BridgeStatus::Full,   // 302 bridge_RtlRaiseException
     BridgeStatus::Stub,   // 303 bridge_RtlRaiseStatus
     BridgeStatus::Full,   // 304 bridge_RtlTimeFieldsToTime
     BridgeStatus::Full,   // 305 bridge_RtlTimeToTimeFields

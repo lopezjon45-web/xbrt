@@ -154,6 +154,12 @@ struct Tests {
             {"fs-movzx-byte", detail::emit_micro_gate(SiteKind::FsMovzxByte, 0, 0x24, 0), true, "mov movzx retf"},
             {"fs-cmp", detail::emit_micro_gate(SiteKind::FsCmp, 6, 0, 0), true, "mov cmp retf"},
             {"fs-cmp-rev", detail::emit_micro_gate(SiteKind::FsCmpRev, 5, 0x18, 0), true, "mov cmp retf"},
+            {"seh_dispatch", detail::emit_seh_dispatch(0x900000C0, 0x900000F0), false,
+             "mov mov mov push push mov cmp jz test jnz cmp jbe cmp jb lea cmp jnbe mov push push push mov lea push push "
+             "push push call add mov mov add test jz cmp jz cmp jnz or mov mov mov jmp test jnz fxrstor mov sub mov mov "
+             "mov mov mov mov mov mov mov mov mov mov popfd ret add mov jmp"},
+            {"seh_nested", detail::emit_seh_nested(), false, "mov mov test jnz mov mov mov mov mov ret"},
+            {"seh_unhandled", detail::emit_seh_unhandled(), false, "ud2"},
         };
         if (detail::has_micro_gate(SiteKind::FsLoad, 4) || !detail::emit_micro_gate(SiteKind::FsOther, 0, 0, 0).empty())
             return {false, "esp or fs-other has a micro-gate"};

@@ -77,7 +77,7 @@ struct PortRange {
 // The counters line and run.txt every 10 s.
 struct CpuCounters {
     uint64_t gate_calls, guest_calls;
-    uint64_t traps_fs, traps_mmio, traps_port, traps_rdtsc, traps_privileged, traps_patch_wait;
+    uint64_t traps_fs, traps_mmio, traps_port, traps_rdtsc, traps_privileged, traps_patch_wait, traps_delivered;
     uint64_t sites_promoted_eager, sites_promoted_learned, fs_unpromotable;
     uint32_t live_guest_threads;
 };
@@ -126,6 +126,10 @@ public:
     void map_ports(PortRange range, PortDevice &device);
     // Addresses in the Rdtsc set (CodeMap) whose `0F 31` became `EF 90`; the router scales them to guest_tsc_hz.
     void note_rdtsc_sites(std::span<const GuestVa> sites);
+
+    // RtlRaiseException from a host call on `thread`: the guest resumes in the exception dispatcher, with a CONTEXT that
+    // returns to the raiser's caller. Sets the esp and eip to resume at; false when the guest stack has no room.
+    bool raise(GuestThread &thread, const GateFrame &frame, GuestVa record, uint32_t &esp, uint32_t &eip);
 
     CpuCounters counters() const;
     uint64_t guest_tsc() const;

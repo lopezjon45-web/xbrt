@@ -32,6 +32,9 @@ std::vector<uint8_t> emit_resume64();
 std::vector<uint8_t> emit_unwind64(uint32_t exit64);
 std::vector<uint8_t> emit_id_stub(uint16_t id, uint32_t ptr_full_gate64);
 std::vector<uint8_t> emit_dm_notify();
+std::vector<uint8_t> emit_seh_dispatch(uint32_t nested, uint32_t unhandled);   // 32-bit code, as the next two
+std::vector<uint8_t> emit_seh_nested();
+std::vector<uint8_t> emit_seh_unhandled();
 std::vector<uint8_t> emit_fault_gate();   // ud2: the second-fault guard's test target
 std::vector<uint8_t> emit_far_pointer(uint32_t offset, uint16_t selector);
 std::vector<uint8_t> emit_patch(uint32_t ptr_variant, uint8_t length);
@@ -44,7 +47,7 @@ inline constexpr uint32_t kVariantsOffset = 0x1000, kFarPtrOffset = 0x10000, kId
 inline constexpr uint32_t kIdStubSize = 16;
 
 struct Gates {
-    uint32_t enter64, exit32, exit64, full_gate64, resume64, unwind64, dm_notify, fault_gate;
+    uint32_t enter64, exit32, exit64, full_gate64, resume64, unwind64, dm_notify, fault_gate, seh_dispatch, seh_nested, seh_unhandled;
     uint32_t ptr_exit64, ptr_full_gate64;
 };
 
@@ -124,7 +127,7 @@ struct CpuState {
     std::set<uint32_t> rdtsc_sites;
 
     std::atomic<uint64_t> gate_calls{0}, guest_calls{0}, traps_fs{0}, traps_mmio{0}, traps_port{0}, traps_rdtsc{0},
-        traps_privileged{0}, traps_patch_wait{0}, sites_promoted_eager{0}, sites_promoted_learned{0}, fs_unpromotable{0};
+        traps_privileged{0}, traps_patch_wait{0}, traps_delivered{0}, sites_promoted_eager{0}, sites_promoted_learned{0}, fs_unpromotable{0};
     std::atomic<uint32_t> live_guest_threads{0}, next_index{0};
 
     std::mutex threads_lock;

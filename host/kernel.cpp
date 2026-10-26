@@ -51,6 +51,14 @@ uint32_t g_kernel_data;
 // The innermost host call of this thread; a nested guest call starts below its esp.
 thread_local GateFrame *t_frame;
 
+// Where the guest resumes instead of the kernel call's return: set by xbox_frontend_raise inside RtlRaiseException's
+// bridge, applied by call_kernel.
+struct Redirect {
+    bool set;
+    uint32_t esp, eip;
+};
+thread_local Redirect t_redirect;
+
 // Suspended spawns not yet resumed, by host thread id: their first NtResumeThread is GuestThread::resume().
 std::mutex g_suspended_lock;
 std::unordered_map<DWORD, GuestThread *> g_suspended;
@@ -119,6 +127,12 @@ void call_kernel(Ordinal o, GateFrame &f) noexcept
                                ? "Kernel export " + export_label(o) + " is data, called as a function"
                                : "Missing kernel export " + export_label(o);
         stop_or_warn(MissingKind::KernelExport, true, std::move(what), return_address);
+        return;
+    }
+    if (t_redirect.set) {
+        t_redirect.set = false;
+        f.esp = t_redirect.esp;
+        f.eip = t_redirect.eip;
         return;
     }
     f.eax = g_eax;
@@ -332,6 +346,16 @@ extern "C" int xbox_frontend_va_mapped(uint32_t va, uint32_t bytes)
 }
 
 extern "C" void xbox_frontend_return_to_hub(uint32_t reason) { g_setup.sink->return_to_hub(reason); }
+
+extern "C" int xbox_frontend_raise(uint32_t record)
+{
+    xbrt::GateFrame *frame = xbrt::t_frame;
+    if (!frame || !g_setup.cpu) return 0;
+    uint32_t esp = 0, eip = 0;
+    if (!g_setup.cpu->raise(xbrt::GuestThread::current(), *frame, {record}, esp, eip)) return 0;
+    xbrt::t_redirect = {true, esp, eip};
+    return 1;
+}
 
 extern "C" void xbox_frontend_refuse(const char *what)
 {

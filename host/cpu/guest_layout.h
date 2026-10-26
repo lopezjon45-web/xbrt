@@ -122,6 +122,29 @@ static_assert(sizeof(XboxEthread) == 0x140);
 
 inline constexpr uint8_t kKthreadRunning = 2;   // KTHREAD_STATE
 
+// The exception structures a title's handler reads, as nxdk's xboxdef.h declares them. The Xbox CONTEXT's
+// FloatSave is the FXSAVE image plus Cr0NpxState.
+struct XboxExceptionRecord {
+    uint32_t ExceptionCode, ExceptionFlags, ExceptionRecord, ExceptionAddress, NumberParameters;
+    uint32_t ExceptionInformation[15];
+};
+
+struct XboxContext {
+    uint32_t ContextFlags;
+    uint8_t FloatSave[512];
+    uint32_t Cr0NpxState;
+    uint32_t Edi, Esi, Ebx, Edx, Ecx, Eax, Ebp, Eip, SegCs, EFlags, Esp, SegSs;
+};
+
+static_assert(sizeof(XboxExceptionRecord) == 0x50);
+static_assert(offsetof(XboxContext, FloatSave) == 0x04 && offsetof(XboxContext, Edi) == 0x208);
+static_assert(offsetof(XboxContext, Ebx) == 0x210 && offsetof(XboxContext, Edx) == 0x214 && offsetof(XboxContext, Ecx) == 0x218);
+static_assert(offsetof(XboxContext, Eax) == 0x21C && offsetof(XboxContext, Ebp) == 0x220 && offsetof(XboxContext, Eip) == 0x224);
+static_assert(offsetof(XboxContext, EFlags) == 0x22C && offsetof(XboxContext, Esp) == 0x230 && sizeof(XboxContext) == 0x238);
+
+inline constexpr uint32_t kXboxContextFull = 0x0001000F;   // CONTEXT_CONTROL | INTEGER | SEGMENTS | FLOATING_POINT
+inline constexpr uint32_t kExceptionNoncontinuable = 0x01;
+
 // The ThreadBlock: two pages in the runtime region; r15 holds its base while the thread runs guest code.
 inline constexpr uint32_t kThreadBlockSize = 0x2000;
 inline constexpr uint32_t kEthreadOffset = 0x400;
@@ -151,6 +174,7 @@ struct HostPart {
     SpawnArgs *spawn;
     uint32_t suspended;
     uint32_t mmio_in_progress;
+    uint32_t call_esp;   // where the innermost nested call() began on the guest stack; 0 for the outermost
 };
 
 inline constexpr int32_t kHostRsp = kHostPartOffset + offsetof(HostPart, host_rsp);

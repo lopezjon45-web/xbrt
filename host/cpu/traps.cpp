@@ -5,6 +5,7 @@
 
 #include <intrin.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -438,11 +439,80 @@ void promote_from_trap(Trap &t, SiteKind privileged_or_fs)
     if (!promote(site, true)) g_cpu->fs_unpromotable += privileged_or_fs == SiteKind::Privileged ? 0 : 1;
 }
 
+// ---- Exception delivery: a guest fault or raise reaches the title's fs:[0] handlers ----------------------------------
+
+constexpr uint32_t kStatusAccessViolation = 0xC0000005;
+constexpr uint16_t kXboxCs = 0x08, kXboxSs = 0x10;   // the console runs titles in ring 0
+
+// The stop to make for each exception this thread is dispatching, should no handler take it, by the esp its
+// dispatcher started at; a filter can raise and handle an exception of its own while an outer one is being dispatched.
+struct Undelivered {
+    uint32_t esp;
+    CONTEXT ctx;
+    std::string what;
+};
+thread_local std::vector<Undelivered> t_undelivered;
+
+void note_undelivered(uint32_t esp, const CONTEXT &c, std::string what)
+{
+    // A dispatch whose frames lie below the stack pointer now has ended.
+    std::erase_if(t_undelivered, [&](const Undelivered &u) { return u.esp < uint32_t(c.Rsp); });
+    t_undelivered.push_back({esp, c, std::move(what)});
+}
+
+// The record, the CONTEXT (FloatSave 16-aligned for fxrstor) and the dispatcher's four arguments, built below `esp`
+// with a gap the dispatcher's resume uses. Returns the dispatcher's esp, or 0 when the thread's stack has no room.
+uint32_t push_exception(ThreadBlock *tb, uint32_t esp, const XboxContext &context, const XboxExceptionRecord &record)
+{
+    uint32_t context_va = ((esp - 0x20 - uint32_t(sizeof(XboxContext))) & ~15u) - 4;
+    uint32_t record_va = context_va - uint32_t(sizeof(XboxExceptionRecord));
+    uint32_t args_va = record_va - 16;
+    if (args_va > esp || !readable(args_va, esp - args_va)) return 0;
+    memcpy(host(context_va), &context, sizeof context);
+    memcpy(host(record_va), &record, sizeof record);
+    uint32_t bound = tb->host.call_esp ? tb->host.call_esp : tb->kpcr.NtTib.StackBase;
+    uint32_t args[4] = {record_va, context_va, uint32_t(reinterpret_cast<uintptr_t>(tb)), bound};
+    memcpy(host(args_va), args, sizeof args);
+    return args_va;
+}
+
+// The fault in `t` goes to the title's handlers: the guest resumes in the dispatcher. `what` is the stop if none takes
+// it.
+uint32_t deliver(Trap &t, const XboxExceptionRecord &record, std::string what)
+{
+    CONTEXT &c = t.c;
+    XboxContext x{};
+    x.ContextFlags = kXboxContextFull;
+    memcpy(x.FloatSave, &c.FltSave, sizeof x.FloatSave);
+    x.Edi = uint32_t(c.Rdi), x.Esi = uint32_t(c.Rsi), x.Ebx = uint32_t(c.Rbx), x.Edx = uint32_t(c.Rdx);
+    x.Ecx = uint32_t(c.Rcx), x.Eax = uint32_t(c.Rax), x.Ebp = uint32_t(c.Rbp), x.Eip = t.eip;
+    x.SegCs = kXboxCs, x.EFlags = c.EFlags, x.Esp = uint32_t(c.Rsp), x.SegSs = kXboxSs;
+    uint32_t esp = push_exception(t.tb, uint32_t(c.Rsp), x, record);
+    if (!esp) fatal_trap(t.tb, what + "; the guest stack has no room to deliver it to the title's handlers");
+    g_cpu->traps_delivered++;
+    trace(t, "delivered", g_cpu->gates.seh_dispatch);
+    note_undelivered(esp, c, std::move(what));
+    c.Rsp = esp;
+    c.EFlags &= ~kDfFlag;
+    // A pending x87 exception stays in the title's CONTEXT; the dispatcher's own x87 use must not raise it again.
+    c.FltSave.StatusWord &= 0x7F00;
+    return g_cpu->gates.seh_dispatch;
+}
+
+[[noreturn]] void undelivered(ThreadBlock *tb, uint32_t esp)
+{
+    auto it = std::find_if(t_undelivered.rbegin(), t_undelivered.rend(), [&](const Undelivered &u) { return u.esp == esp; });
+    if (it == t_undelivered.rend()) fatal_trap(tb, "the exception dispatcher reached its end with no exception pending");
+    tb->trap.ctx = it->ctx;
+    fatal_trap(tb, it->what + " (no handler on the fs:[0] chain took it)");
+}
+
 uint32_t route(Trap &t)
 {
     CpuState &s = *g_cpu;
     if (t.c.SegCs == kLongCs)   // only a gate can fault in 64-bit mode on a guest thread
         fatal_trap(t.tb, format("fault 0x%08X at 0x%llX inside the gates", t.code, static_cast<unsigned long long>(t.c.Rip)));
+    if (t.eip == s.gates.seh_unhandled) undelivered(t.tb, uint32_t(t.c.Rsp));
     if (t.code == STATUS_PRIVILEGED_INSTRUCTION && t.eip == s.patching_site.load()) {
         s.traps_patch_wait++;
         SwitchToThread();
@@ -485,12 +555,16 @@ uint32_t route(Trap &t)
         if (t.addr >= kKernelImageBase && t.addr < kKernelImageEnd)
             fatal_trap(t.tb, format("fault on 0x%08X (kernel image) at '%s'", uint32_t(t.addr), disasm(t).c_str()));
         if (is_segment_load(t)) fatal_trap(t.tb, format("selector load '%s'", disasm(t).c_str()));
+        // A general protection fault (no address): an instruction ring 3 refuses that the console's ring 0 runs.
+        if (t.addr == ~0ull) fatal_trap(t.tb, format("protection fault at '%s'", disasm(t).c_str()));
         if (const DeviceAperture *d = device_aperture_at(uint32_t(t.addr)))
             fatal_trap(t.tb, format("%s register 0x%08X %s: not modelled ('%s')", std::string(d->name).c_str(), uint32_t(t.addr),
                                     t.write ? "write" : "read", disasm(t).c_str()),
                        true);
-        fatal_trap(t.tb, format("%s fault on 0x%08X at '%s' (ss=0x%X cs=0x%X)", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str(),
-                                t.c.SegSs, t.c.SegCs));
+        XboxExceptionRecord record{kStatusAccessViolation, 0, 0, t.eip, 2, {t.write ? 1u : 0u, uint32_t(t.addr)}};
+        return deliver(t, record,
+                       format("%s fault on 0x%08X at '%s' (ss=0x%X cs=0x%X)", t.write ? "write" : "read", uint32_t(t.addr),
+                              disasm(t).c_str(), t.c.SegSs, t.c.SegCs));
     }
     if (t.code == STATUS_PRIVILEGED_INSTRUCTION) {
         if (t.bytes[0] == kRdtscTrap[0] && rdtsc_site(t.eip)) {
@@ -556,10 +630,49 @@ uint32_t route(Trap &t)
         }
         fatal_trap(t.tb, format("breakpoint at 0x%08X ('%s')", t.eip, disasm(t).c_str()));
     }
-    fatal_trap(t.tb, format("exception 0x%08X at '%s'", t.code, disasm(t).c_str()));
+    XboxExceptionRecord record{t.code, 0, 0, t.eip, 0, {}};
+    return deliver(t, record, format("exception 0x%08X at '%s'", t.code, disasm(t).c_str()));
 }
 
 }  // namespace
+
+}  // namespace xbrt::detail
+
+namespace xbrt {
+
+bool Cpu::raise(GuestThread &thread, const GateFrame &frame, GuestVa record, uint32_t &esp, uint32_t &eip)
+{
+    using namespace detail;
+    ThreadBlock *tb = block_of(thread);
+    if (!tb || !readable(frame.esp, 8) || !readable(record.v, sizeof(XboxExceptionRecord))) return false;
+    XboxExceptionRecord r;
+    memcpy(&r, host(record.v), sizeof r);
+    uint32_t caller = Access::load(host(frame.esp), 4);
+    r.ExceptionAddress = caller;
+    if (r.NumberParameters > 15) r.NumberParameters = 15;
+    // The CONTEXT RtlRaiseException captures: its caller's registers, as if it had returned (stdcall, one argument).
+    alignas(16) uint8_t fx[512];
+    _fxsave(fx);
+    memcpy(fx, &frame.fpcw, 2);
+    memcpy(fx + 24, &frame.mxcsr, 4);
+    XboxContext x{};
+    x.ContextFlags = kXboxContextFull;
+    memcpy(x.FloatSave, fx, sizeof x.FloatSave);
+    x.Edi = frame.edi, x.Esi = frame.esi, x.Ebx = frame.ebx, x.Edx = frame.edx, x.Ecx = frame.ecx, x.Eax = frame.eax;
+    x.Ebp = frame.ebp, x.Eip = caller, x.SegCs = kXboxCs, x.EFlags = 0x202, x.Esp = frame.esp + 8, x.SegSs = kXboxSs;
+    esp = push_exception(tb, frame.esp, x, r);
+    if (!esp) return false;
+    CONTEXT c{};
+    c.Rip = caller, c.Rsp = x.Esp, c.Rax = frame.eax, c.Rcx = frame.ecx, c.Rdx = frame.edx, c.Rbx = frame.ebx;
+    c.Rbp = frame.ebp, c.Rsi = frame.esi, c.Rdi = frame.edi, c.EFlags = x.EFlags, c.SegCs = kCompatCs, c.SegSs = kFlatData;
+    note_undelivered(esp, c, format("exception 0x%08X raised by the title at 0x%08X", r.ExceptionCode, caller));
+    eip = g_cpu->gates.seh_dispatch;
+    return true;
+}
+
+}  // namespace xbrt
+
+namespace xbrt::detail {
 
 [[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what, bool device_register)
 {
