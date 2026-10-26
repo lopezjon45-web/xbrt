@@ -48,9 +48,10 @@ Run cl.exe ($cflags + @("/Iexternal\XbSymbolDatabase\include", "/Iexternal\XbSym
     (Get-ChildItem external\XbSymbolDatabase\src\lib\*.c, external\XbSymbolDatabase\src\OOVPADatabase\*.c | ForEach-Object { $_.FullName }))
 $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include")
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
-Compile "gen\host" @() (Get-ChildItem host\*.cpp | ForEach-Object { $_.FullName })
+Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })
-Compile "gen\desktop" @() @("shell\desktop\main.cpp")
+# The desktop host carries the CPU core's tests (tests\host), which it runs with --cpu-tests.
+Compile "gen\desktop" @() (@("shell\desktop\main.cpp") + (Get-ChildItem tests\host\*.cpp | ForEach-Object { $_.FullName }))
 Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")
 
@@ -61,8 +62,8 @@ $uwpObjs = Get-ChildItem gen\uwp\*.obj | ForEach-Object { $_.FullName }
 Run link.exe (@("/nologo", "/OUT:gen\xbrt.exe", "/SUBSYSTEM:WINDOWS", "/APPCONTAINER", "/DEBUG", "/OPT:REF", "/OPT:ICF", "/PDB:gen\xbrt.pdb") +
     $coreObjs + $hostObjs + $uwpObjs + @("WindowsApp.lib", "onecore.lib", "d3d12.lib", "d3d11.lib", "dxgi.lib"))
 Note "xbrt.exe size: $((Get-Item gen\xbrt.exe).Length)"
-Run link.exe (@("/nologo", "/OUT:gen\xbrt_desktop.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_desktop.pdb", "gen\desktop\main.obj") +
-    $coreObjs + $hostObjs + @("onecore.lib", "d3d12.lib", "d3d11.lib", "dxgi.lib"))
+Run link.exe (@("/nologo", "/OUT:gen\xbrt_desktop.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_desktop.pdb") +
+    (Get-ChildItem gen\desktop\*.obj | ForEach-Object { $_.FullName }) + $coreObjs + $hostObjs + @("onecore.lib", "d3d12.lib", "d3d11.lib", "dxgi.lib"))
 Run link.exe (@("/nologo", "/OUT:gen\xbrt_tests.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_tests.pdb") +
     (Get-ChildItem gen\tests\*.obj | ForEach-Object { $_.FullName }) + $coreObjs)
 Run link.exe (@("/nologo", "/OUT:gen\xbrt-inspect.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt-inspect.pdb", "gen\inspect\main.obj") + $coreObjs)

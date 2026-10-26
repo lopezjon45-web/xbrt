@@ -42,6 +42,16 @@ jobs:
           Copy-Item run.txt ..\out\desktop-run.txt -ErrorAction SilentlyContinue
       - name: Judge the desktop run
         run: python scripts/check-desktop-run.py out/desktop-run.txt
+      - name: Run the CPU core's tests
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force cpu-tests | Out-Null
+          Set-Location cpu-tests
+          ..\gen\xbrt_desktop.exe --cpu-tests
+          Write-Output "exit $LASTEXITCODE"
+          Copy-Item cpu-tests.txt ..\out\cpu-tests.txt -ErrorAction SilentlyContinue
+      - name: Judge the CPU tests
+        run: python scripts/check-cpu-tests.py out/cpu-tests.txt
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:
@@ -49,6 +59,6 @@ jobs:
         shell: bash
         run: |
           tag="build-${{ github.run_number }}"
-          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe \
+          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/cpu-tests.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe \
             --prerelease --title "xbrt build ${{ github.run_number }} ($(git rev-parse --short HEAD))" \
             --notes "Run ${{ github.run_id }} of ${{ github.sha }}. Install LopezJon.XboxRuntime_*.appx; the XbrtBisect0..5 packages are the start-refusal ladder (package/make-manifests.py)."

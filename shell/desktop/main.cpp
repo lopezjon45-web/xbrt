@@ -1,6 +1,7 @@
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
+#include "tests/host/cpu_tests.h"
 
 #include <windows.h>
 
@@ -122,12 +123,14 @@ struct DesktopServices final : xbrt::ShellServices {
 
 }  // namespace
 
-// xbrt_desktop.exe [--survey <folder>]: the stages and probes; with --survey, the survey over a folder of images
-// instead, writing survey.tsv beside run.txt.
+// xbrt_desktop.exe [--survey <folder> | --cpu-tests]: the stages and probes; with --survey, the survey over a folder
+// of images instead, writing survey.tsv beside run.txt; with --cpu-tests, the CPU core's tests, writing cpu-tests.txt.
 int main(int argc, char **argv)
 {
-    g_run = std::fopen("run.txt", "w");
-    if (!g_run) std::fprintf(stderr, "cannot open run.txt\n");
+    bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";
+    const char *log_name = cpu_tests ? "cpu-tests.txt" : "run.txt";
+    g_run = std::fopen(log_name, "w");
+    if (!g_run) std::fprintf(stderr, "cannot open %s\n", log_name);
     if (argc == 3 && std::string(argv[1]) == "--survey") {
         DesktopServices services;
         std::string folder = argv[2];
@@ -156,6 +159,13 @@ int main(int argc, char **argv)
     std::string identity = (*memory)->identity_check();
     line(identity);
     bool ok = identity.starts_with("identity ok");
+
+    if (cpu_tests) {
+        ok = xbrt::run_cpu_tests(**memory, [](const std::string &l) { line(l); }) && ok;
+        line("END");
+        if (g_run) std::fclose(g_run);
+        return ok ? 0 : 1;
+    }
 
     line(device_line());
 
