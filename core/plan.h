@@ -77,4 +77,15 @@ struct TitlePlan {
 
 TitlePlan plan_title(const XbeImage &xbe, std::span<const uint8_t> file, const SymbolMap &symbols);
 
+// plan.bin: the plan as one little-endian record behind a magic, a format version and the XBE's hash. The reader
+// rejects the whole file on any mismatch (magic, version, another XBE's hash, a truncated or overlong record, a
+// field out of its range), so a stale cache can never reach apply_sites.
+inline constexpr uint32_t kPlanFormatVersion = 1;
+std::vector<uint8_t> serialize_plan(const TitlePlan &plan);
+Parsed<TitlePlan> deserialize_plan(std::span<const uint8_t> bytes, const std::array<uint8_t, 32> &xbe_sha256);
+
+// Adds sites a run promoted from traps to the plan's sites; a site at an address the plan already has is replaced
+// by the learned one, and the result stays sorted by address.
+void merge_learned(TitlePlan &plan, std::span<const PatchSite> learned);
+
 }  // namespace xbrt

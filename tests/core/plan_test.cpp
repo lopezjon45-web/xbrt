@@ -156,6 +156,124 @@ TEST(plan_title_places_imports_overrides_and_device_constants)
     if (!plan.notes.empty()) CHECK_CONTAINS(plan.notes[0], "1 fs sites have no micro-gate");
 }
 
+namespace {
+
+xbrt::TitlePlan full_plan()
+{
+    std::vector<uint8_t> file = with_text(build_xbe(), kCode);
+    xbrt::XbeImage x = parse(file);
+    xbrt::SymbolMap symbols({function("XAPILIB", "QueryPerformanceCounter", kTextVa + 0x70),
+                             {"D3D8", "D3D_g_pDevice", {kRdataVa + 0x80}, 4627, false, false}});
+    return xbrt::plan_title(x, file, symbols);
+}
+
+bool same_site(const xbrt::PatchSite &a, const xbrt::PatchSite &b)
+{
+    return a.at == b.at && a.length == b.length && a.kind == b.kind && a.reg == b.reg && a.disp == b.disp && a.imm == b.imm &&
+           a.original == b.original;
+}
+
+std::string plan_difference(const xbrt::TitlePlan &a, const xbrt::TitlePlan &b)
+{
+    if (a.xbe_sha256 != b.xbe_sha256) return "sha256";
+    if (a.imports.size() != b.imports.size()) return "imports count";
+    for (size_t i = 0; i < a.imports.size(); i++)
+        if (a.imports[i].slot != b.imports[i].slot || a.imports[i].ordinal != b.imports[i].ordinal) return "import " + std::to_string(i);
+    if (a.overrides.size() != b.overrides.size()) return "overrides count";
+    for (size_t i = 0; i < a.overrides.size(); i++)
+        if (a.overrides[i].entry != b.overrides[i].entry || a.overrides[i].id != b.overrides[i].id) return "override " + std::to_string(i);
+    if (a.overrides_missing != b.overrides_missing) return "overrides_missing";
+    if (a.sites.size() != b.sites.size()) return "sites count";
+    for (size_t i = 0; i < a.sites.size(); i++)
+        if (!same_site(a.sites[i], b.sites[i])) return "site " + std::to_string(i);
+    if (a.devices.d3d_device_ptr != b.devices.d3d_device_ptr || a.devices.d3d_library_build != b.devices.d3d_library_build) return "devices";
+    const xbrt::CodeMapStats &ca = a.code_map, &cb = b.code_map;
+    if (ca.bytes_decoded != cb.bytes_decoded || ca.functions != cb.functions || ca.fs_sites != cb.fs_sites ||
+        ca.rdtsc_sites != cb.rdtsc_sites || ca.fs_unpromotable != cb.fs_unpromotable || ca.privileged_sites != cb.privileged_sites)
+        return "code_map";
+    if (a.notes != b.notes) return "notes";
+    return "";
+}
+
+}  // namespace
+
+TEST(plan_round_trips_through_plan_bin)
+{
+    xbrt::TitlePlan plan = full_plan();
+    CHECK(!plan.imports.empty() && !plan.overrides.empty() && !plan.overrides_missing.empty() && !plan.sites.empty() &&
+          !plan.notes.empty() && plan.devices.d3d_device_ptr.has_value());
+    std::vector<uint8_t> bytes = xbrt::serialize_plan(plan);
+    xbrt::Parsed<xbrt::TitlePlan> back = xbrt::deserialize_plan(bytes, plan.xbe_sha256);
+    CHECK(back.has_value());
+    if (back) CHECK_STR(plan_difference(plan, *back), "");
+
+    xbrt::TitlePlan bare{};
+    bare.xbe_sha256 = plan.xbe_sha256;
+    xbrt::Parsed<xbrt::TitlePlan> bare_back = xbrt::deserialize_plan(xbrt::serialize_plan(bare), bare.xbe_sha256);
+    CHECK(bare_back.has_value());
+    if (bare_back) CHECK_STR(plan_difference(bare, *bare_back), "");
+}
+
+TEST(plan_bin_is_rejected_whole_on_any_mismatch)
+{
+    xbrt::TitlePlan plan = full_plan();
+    std::vector<uint8_t> bytes = xbrt::serialize_plan(plan);
+
+    std::array<uint8_t, 32> other = plan.xbe_sha256;
+    other[5] ^= 1;
+    xbrt::Parsed<xbrt::TitlePlan> stale = xbrt::deserialize_plan(bytes, other);
+    CHECK(!stale.has_value());
+    if (!stale) CHECK_CONTAINS(stale.error(), "another XBE");
+
+    std::vector<uint8_t> old = bytes;
+    old[8] = uint8_t(xbrt::kPlanFormatVersion + 1);
+    xbrt::Parsed<xbrt::TitlePlan> version = xbrt::deserialize_plan(old, plan.xbe_sha256);
+    CHECK(!version.has_value());
+    if (!version) CHECK_CONTAINS(version.error(), "format");
+
+    std::vector<uint8_t> magic = bytes;
+    magic[0] = 'Y';
+    CHECK(!xbrt::deserialize_plan(magic, plan.xbe_sha256).has_value());
+
+    for (size_t cut : {size_t(0), size_t(7), size_t(40), bytes.size() / 2, bytes.size() - 1}) {
+        std::vector<uint8_t> truncated(bytes.begin(), bytes.begin() + cut);
+        xbrt::Parsed<xbrt::TitlePlan> t = xbrt::deserialize_plan(truncated, plan.xbe_sha256);
+        CHECK(!t.has_value());
+    }
+
+    std::vector<uint8_t> padded = bytes;
+    padded.push_back(0);
+    xbrt::Parsed<xbrt::TitlePlan> trailing = xbrt::deserialize_plan(padded, plan.xbe_sha256);
+    CHECK(!trailing.has_value());
+    if (!trailing) CHECK_CONTAINS(trailing.error(), "after the record");
+
+    xbrt::TitlePlan bad_kind = plan;
+    bad_kind.sites[0].kind = xbrt::SiteKind(uint8_t(xbrt::SiteKind::Privileged) + 1);
+    CHECK(!xbrt::deserialize_plan(xbrt::serialize_plan(bad_kind), plan.xbe_sha256).has_value());
+    xbrt::TitlePlan bad_length = plan;
+    bad_length.sites[0].length = 16;
+    CHECK(!xbrt::deserialize_plan(xbrt::serialize_plan(bad_length), plan.xbe_sha256).has_value());
+}
+
+TEST(merge_learned_adds_new_sites_and_replaces_planned_ones_at_the_same_address)
+{
+    xbrt::TitlePlan plan = full_plan();
+    size_t before = plan.sites.size();
+    xbrt::PatchSite replaced = plan.sites[3];
+    replaced.kind = xbrt::SiteKind::FsOther;
+    xbrt::PatchSite first{{kTextVa - 0x10}, 7, xbrt::SiteKind::FsLoad, 1, 0x18, 0, {}};
+    xbrt::PatchSite last{{kTextVa + 0x1000}, 2, xbrt::SiteKind::Rdtsc, 0, 0, 0, {}};
+    const xbrt::PatchSite learned[] = {last, replaced, first};
+    xbrt::merge_learned(plan, learned);
+    CHECK_EQ(plan.sites.size(), before + 2);
+    CHECK(std::is_sorted(plan.sites.begin(), plan.sites.end(), [](auto &a, auto &b) { return a.at < b.at; }));
+    CHECK(same_site(plan.sites.front(), first));
+    CHECK(same_site(plan.sites.back(), last));
+    auto at = std::find_if(plan.sites.begin(), plan.sites.end(), [&](auto &s) { return s.at == replaced.at; });
+    CHECK(at != plan.sites.end() && at->kind == xbrt::SiteKind::FsOther);
+    CHECK(std::adjacent_find(plan.sites.begin(), plan.sites.end(), [](auto &a, auto &b) { return a.at == b.at; }) == plan.sites.end());
+}
+
 TEST(plan_title_names_a_missing_device_pointer_and_unknown_libraries)
 {
     std::vector<uint8_t> file = build_xbe();
