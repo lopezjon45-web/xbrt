@@ -69,8 +69,63 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # nxdk_pgraph_tests from a pinned commit, built as its own CI builds it, extracted into a lab folder with
+  # lab/pgraph-tests/disc's config (one suite, autorun). It runs as a known-failure lab until it completes.
+  pgraph-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PGRAPH_TESTS_COMMIT: b3b7f7587b1924f46fb7bb9192efd61cab427282
+      EXTRACT_XISO_COMMIT: 3f5b62cfe68f000b0e3c8a30104973f3a297948e
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch nxdk_pgraph_tests
+        run: |
+          git init -q pgraph-tests
+          git -C pgraph-tests fetch -q --depth 1 https://github.com/abaire/nxdk_pgraph_tests.git "$PGRAPH_TESTS_COMMIT"
+          git -C pgraph-tests checkout -q FETCH_HEAD
+          git -C pgraph-tests submodule update -q --init --recursive --depth 1
+      - name: Install its build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends cmake llvm lld libsdl2-dev libsdl2-image-dev ninja-build
+          pip3 install --break-system-packages nv2a-vsh
+      - uses: actions/cache@v4
+        id: nxdk
+        with:
+          path: |
+            pgraph-tests/third_party/nxdk/lib
+            pgraph-tests/third_party/nxdk/tools
+          key: pgraph-tests-nxdk-${{ env.PGRAPH_TESTS_COMMIT }}
+      - name: Build nxdk's libraries
+        if: steps.nxdk.outputs.cache-hit != 'true'
+        working-directory: pgraph-tests
+        run: CMAKE_POLICY_VERSION_MINIMUM=3.5 bash prewarm-nxdk.sh > prewarm.log 2>&1 || { tail -50 prewarm.log; exit 1; }
+      - name: Build nxdk_pgraph_tests
+        working-directory: pgraph-tests
+        run: |
+          export NXDK_DIR="$PWD/third_party/nxdk"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$NXDK_DIR/share/toolchain-nxdk.cmake"
+          cmake --build build -- -j"$(nproc)"
+      - name: Extract it into a lab folder
+        run: |
+          git init -q extract-xiso
+          git -C extract-xiso fetch -q --depth 1 https://github.com/XboxDev/extract-xiso.git "$EXTRACT_XISO_COMMIT"
+          git -C extract-xiso checkout -q FETCH_HEAD
+          cc -O2 -w -D__LINUX__ -o extract-xiso/extract-xiso extract-xiso/extract-xiso.c
+          mkdir -p pgraph-lab/pgraph-tests
+          extract-xiso/extract-xiso -q -x pgraph-tests/build/src/xiso/nxdk_pgraph_tests_xiso/nxdk_pgraph_tests_xiso.iso -d pgraph-lab/pgraph-tests
+          cp -R lab/pgraph-tests/disc/. pgraph-lab/pgraph-tests/
+          ls -l pgraph-lab/pgraph-tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgraph-tests
+          path: pgraph-lab
+          retention-days: 1
+          if-no-files-found: error
+
   windows:
-    needs: lab
+    needs: [lab, pgraph-tests]
     # A broken lab build must not cost the console package: the lab steps below skip when the XBEs are missing.
     if: ${{ !cancelled() }}
     runs-on: windows-2022
@@ -201,6 +256,12 @@ jobs:
         with:
           name: lab-iso
           path: lab-iso
+      - name: Fetch nxdk_pgraph_tests
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pgraph-tests
+          path: lab-xbe
       # Each lab boots from its folder, then from its XISO; a lab with expected-second.txt boots its folder again over
       # the first launch's saves. Saves go to <work>\home\saves\xbrt, as a hub link's home= puts them on the drive.
       - name: Run the lab XBEs
@@ -231,10 +292,10 @@ jobs:
           exit 0
       - name: Judge the lab runs
         if: steps.labxbe.outcome == 'success'
-        run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh
+        run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh --known-failure pgraph-tests
       - name: Judge the lab runs from XISOs
         if: steps.labxbe.outcome == 'success' && steps.labiso.outcome == 'success'
-        run: python scripts/check-lab-run.py lab out/lab-iso --known-failure seh
+        run: python scripts/check-lab-run.py lab out/lab-iso --known-failure seh --known-failure pgraph-tests
       - name: Judge the second launches and where the saves landed
         if: steps.labxbe.outcome == 'success'
         run: |

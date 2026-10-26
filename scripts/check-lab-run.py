@@ -7,7 +7,8 @@
 <lab dir> holds <name>/expected.txt per lab (the source tree's lab/, or lab/build.sh's output). <run dir> holds
 <name>.txt per lab: everything `xbrt_desktop --run` wrote to stdout and stderr. A lab passes when the lines of its
 output that carry "lab <name> " (DbgPrint output may arrive behind a prefix) are exactly its expected lines, in
-order. On a failure the judge prints the difference, the boot stage that failed if one did, and the last 200 lines of
+order. A program that is not ours (nxdk_pgraph_tests) prints its own lines: lab/<name>/tag names the text that
+selects them instead. On a failure the judge prints the difference, the boot stage that failed if one did, and the last 200 lines of
 the output.
 A --known-failure lab is judged and reported the same way but does not fail the run; one that passes does, so the
 flag is removed the moment the defect it names is fixed. --expected judges the labs that have that file instead of
@@ -20,15 +21,14 @@ import sys
 import tempfile
 
 
-def lab_lines(name, output):
-    tag = f"lab {name} "
+def lab_lines(tag, output):
     return [line[line.index(tag):].rstrip() for line in output.splitlines() if tag in line]
 
 
-def judge(name, expected, output):
+def judge(name, expected, output, tag=None):
     if output is None:
         return False, [f"lab {name}: FAIL no run output"]
-    got = lab_lines(name, output)
+    got = lab_lines(tag or f"lab {name} ", output)
     if got == expected:
         return True, [f"lab {name}: pass"]
     report = [f"lab {name}: FAIL"]
@@ -51,9 +51,11 @@ def run(lab_dir, run_dir, known_failures=(), expected_name="expected.txt"):
     passed = 0
     for name in names:
         expected = (pathlib.Path(lab_dir) / name / expected_name).read_text().splitlines()
+        tag_path = pathlib.Path(lab_dir) / name / "tag"
+        tag = tag_path.read_text().rstrip("\n") if tag_path.exists() else None
         out_path = pathlib.Path(run_dir) / f"{name}.txt"
         output = out_path.read_text(encoding="utf-8", errors="replace") if out_path.exists() else None
-        ok, report = judge(name, expected, output)
+        ok, report = judge(name, expected, output, tag)
         if name in known_failures:
             report[0] += " (known failure)" if not ok else " but it is listed as a known failure: remove --known-failure " + name
             failed += ok
@@ -86,6 +88,10 @@ def self_test():
     if judge("demo", expected, None)[0]:
         print("self-test FAIL: accepts a missing run file")
         bad += 1
+    foreign = "[KERNEL] Test loop completed normally\n"
+    if not judge("demo", ["Test loop completed normally"], foreign, "Test loop completed")[0]:
+        print("self-test FAIL: a tag does not select a program's own line")
+        bad += 1
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(f"{d}/lab/demo")
         os.makedirs(f"{d}/run")
@@ -116,11 +122,13 @@ def self_test():
         if run(f"{d}/lab", f"{d}/run", expected_name="expected-second.txt") == 0:
             print("self-test FAIL: --expected judges against expected.txt")
             bad += 1
-    print(f"self-test: {len(cases) + 8 - bad}/{len(cases) + 8} pass")
+    print(f"self-test: {len(cases) + 9 - bad}/{len(cases) + 9} pass")
     return 1 if bad else 0
 
 
 if __name__ == "__main__":
+    # A program that is not ours prints what it likes; the Windows runner's console is cp1252.
+    sys.stdout.reconfigure(errors="replace")
     if sys.argv[1:] == ["--self-test"]:
         sys.exit(self_test())
     args = sys.argv[1:]
