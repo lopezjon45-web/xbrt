@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Judges the desktop host's --run of each lab XBE against the lines the lab program must print.
 
-    check-lab-run.py <lab dir> <run dir>
+    check-lab-run.py <lab dir> <run dir> [--known-failure <name>]...
     check-lab-run.py --self-test
 
 <lab dir> holds <name>/expected.txt per lab (the source tree's lab/, or lab/build.sh's output). <run dir> holds
 <name>.txt per lab: everything `xbrt_desktop --run` wrote to stdout and stderr. A lab passes when the lines of its
 output that carry "lab <name> " (DbgPrint output may arrive behind a prefix) are exactly its expected lines, in
 order. On a failure the judge prints the difference, the boot stage that failed if one did, and the output's tail.
+A --known-failure lab is judged and reported the same way but does not fail the run; one that passes does, so the
+flag is removed the moment the defect it names is fixed.
 """
 import difflib
 import os
@@ -34,20 +36,30 @@ def judge(name, expected, output):
     return False, report
 
 
-def run(lab_dir, run_dir):
+def run(lab_dir, run_dir, known_failures=()):
     names = sorted(p.parent.name for p in pathlib.Path(lab_dir).glob("*/expected.txt"))
     if not names:
         print(f"no <name>/expected.txt under {lab_dir}")
         return 1
+    unknown = sorted(set(known_failures) - set(names))
+    if unknown:
+        print(f"--known-failure names no lab: {', '.join(unknown)}")
+        return 1
     failed = 0
+    passed = 0
     for name in names:
         expected = (pathlib.Path(lab_dir) / name / "expected.txt").read_text().splitlines()
         out_path = pathlib.Path(run_dir) / f"{name}.txt"
         output = out_path.read_text(encoding="utf-8", errors="replace") if out_path.exists() else None
         ok, report = judge(name, expected, output)
+        if name in known_failures:
+            report[0] += " (known failure)" if not ok else " but it is listed as a known failure: remove --known-failure " + name
+            failed += ok
+        else:
+            failed += not ok
+        passed += ok
         print("\n".join(report))
-        failed += not ok
-    print(f"lab run: {len(names) - failed}/{len(names)} pass")
+    print(f"lab run: {passed}/{len(names)} pass, {len(known_failures)} known failure{'' if len(known_failures) == 1 else 's'}")
     return 1 if failed else 0
 
 
@@ -80,13 +92,31 @@ def self_test():
         if run(f"{d}/lab", f"{d}/run") != 0:
             print("self-test FAIL: the directory walk rejects a passing run")
             bad += 1
-    print(f"self-test: {len(cases) + 2 - bad}/{len(cases) + 2} pass")
+        if run(f"{d}/lab", f"{d}/run", ["demo"]) == 0:
+            print("self-test FAIL: a known failure that passes is accepted")
+            bad += 1
+        pathlib.Path(f"{d}/run/demo.txt").write_text(passing.replace("lab demo ok\n", ""))
+        if run(f"{d}/lab", f"{d}/run", ["demo"]) != 0:
+            print("self-test FAIL: a known failure that fails is rejected")
+            bad += 1
+        if run(f"{d}/lab", f"{d}/run") == 0:
+            print("self-test FAIL: the directory walk accepts a failing run")
+            bad += 1
+        if run(f"{d}/lab", f"{d}/run", ["nosuchlab"]) == 0:
+            print("self-test FAIL: a known failure naming no lab is accepted")
+            bad += 1
+    print(f"self-test: {len(cases) + 6 - bad}/{len(cases) + 6} pass")
     return 1 if bad else 0
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
         sys.exit(self_test())
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    known = []
+    while len(args) >= 4 and args[-2] == "--known-failure":
+        known.append(args[-1])
+        args = args[:-2]
+    if len(args) != 2:
         sys.exit(__doc__)
-    sys.exit(run(sys.argv[1], sys.argv[2]))
+    sys.exit(run(args[0], args[1], known))
