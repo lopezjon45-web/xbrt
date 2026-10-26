@@ -80,7 +80,7 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     k.Irql = 0;
     k.PrcbData.CurrentThread = bva.v + kEthreadOffset;
     k.PrcbData.DpcListHead[0] = k.PrcbData.DpcListHead[1] = bva.v + offsetof(XboxKpcr, PrcbData.DpcListHead);
-    k.PrcbData.DmEnetFunc = g_cpu->gates.ret_stub;
+    k.PrcbData.DebugMonitorData = g_cpu->debug_monitor;
     XboxEthread &e = tb->ethread;
     e.Tcb.StackBase = stack.base.v;
     e.Tcb.StackLimit = stack.limit.v;
@@ -199,7 +199,7 @@ Cpu &Cpu::install(GuestMemory &memory, HostCallHandler on_host_call, FatalSink o
     g.full_gate64 = put(emit_full_gate64(reinterpret_cast<uint64_t>(&xbrt_on_gate)));
     g.resume64 = put(emit_resume64());
     g.unwind64 = put(emit_unwind64(g.exit64));
-    g.ret_stub = put(emit_ret_stub());
+    g.dm_notify = put(emit_dm_notify());
     g.fault_gate = put(emit_fault_gate());
     {
         std::lock_guard<std::mutex> hold(s->patch_lock);
@@ -208,6 +208,12 @@ Cpu &Cpu::install(GuestMemory &memory, HostCallHandler on_host_call, FatalSink o
     }
     g.exit32 = put(emit_exit32(g.ptr_exit64));
     if (cursor > chunk.v + kVariantsOffset) install_failed("the fixed gates overflow their page", on_fatal);
+    // The debug monitor's notification routine (+0x14, stdcall with two arguments) is all XDK code calls in it.
+    GuestVa monitor = memory.runtime_alloc(kDebugMonitorSize, 16, false);
+    if (!monitor.v) install_failed("runtime region: no room for the debug monitor block", on_fatal);
+    memset(host(monitor.v), 0, kDebugMonitorSize);
+    *reinterpret_cast<uint32_t *>(host(monitor.v + kDebugMonitorNotify)) = g.dm_notify;
+    s->debug_monitor = monitor.v;
     FlushInstructionCache(GetCurrentProcess(), host(chunk.v), kChunkSize);
     s->id_stub_made.assign((kChunkSize - kIdStubsOffset) / kIdStubSize, false);
     if (!AddVectoredExceptionHandler(1, cpu_veh)) install_failed("AddVectoredExceptionHandler failed", on_fatal);

@@ -31,7 +31,7 @@ std::vector<uint8_t> emit_full_gate64(uint64_t on_gate);
 std::vector<uint8_t> emit_resume64();
 std::vector<uint8_t> emit_unwind64(uint32_t exit64);
 std::vector<uint8_t> emit_id_stub(uint16_t id, uint32_t ptr_full_gate64);
-std::vector<uint8_t> emit_ret_stub();
+std::vector<uint8_t> emit_dm_notify();
 std::vector<uint8_t> emit_fault_gate();   // ud2: the second-fault guard's test target
 std::vector<uint8_t> emit_far_pointer(uint32_t offset, uint16_t selector);
 std::vector<uint8_t> emit_patch(uint32_t ptr_variant, uint8_t length);
@@ -39,11 +39,12 @@ std::vector<uint8_t> emit_micro_gate(SiteKind kind, uint8_t reg, uint32_t disp, 
 bool has_micro_gate(SiteKind kind, uint8_t reg);
 
 inline constexpr uint32_t kChunkSize = 0x100000;
+inline constexpr uint32_t kDebugMonitorSize = 0x100, kDebugMonitorNotify = 0x14;
 inline constexpr uint32_t kVariantsOffset = 0x1000, kFarPtrOffset = 0x10000, kIdStubsOffset = 0x20000;
 inline constexpr uint32_t kIdStubSize = 16;
 
 struct Gates {
-    uint32_t enter64, exit32, exit64, full_gate64, resume64, unwind64, ret_stub, fault_gate;
+    uint32_t enter64, exit32, exit64, full_gate64, resume64, unwind64, dm_notify, fault_gate;
     uint32_t ptr_exit64, ptr_full_gate64;
 };
 
@@ -105,6 +106,7 @@ struct CpuState {
     Cpu::FatalSink on_fatal = nullptr;
     CpuOptions options;
     uint32_t chunk = 0;
+    uint32_t debug_monitor = 0;
     Gates gates{};
     LARGE_INTEGER qpf{};
 

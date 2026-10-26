@@ -256,7 +256,7 @@ std::vector<uint8_t> emit_id_stub(uint16_t id, uint32_t ptr_full_gate64)
     return a.b;
 }
 
-std::vector<uint8_t> emit_ret_stub() { return {0xC3}; }
+std::vector<uint8_t> emit_dm_notify() { return {0x33, 0xC0, 0xC2, 0x08, 0x00}; }   // xor eax,eax; ret 8
 
 std::vector<uint8_t> emit_fault_gate()
 {

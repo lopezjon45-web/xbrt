@@ -33,7 +33,9 @@ struct XboxKprcb {   // KPCR + 0x28
     uint32_t DpcListHead[2];    // KPRCB + 0x28
     uint32_t DpcRoutineActive;  // KPRCB + 0x30, fs:[0x58]; DSOUND reads it
     uint8_t pad0[0x250 - 0x34];
-    uint32_t DmEnetFunc;   // KPRCB + 0x250: XAPI's startup rewrites the GDT when this is 0; seeded with a `ret` stub
+    // KPRCB + 0x250. Zero is a retail console with no debug monitor, on which XAPI's start-up rewrites the GDT from
+    // the kernel image at 0x80010000; xbrt has neither, so every thread points it at one empty debug monitor block.
+    uint32_t DebugMonitorData;
     uint8_t pad1[0x258 - 0x254];   // Cxbx sizes the KPRCB at 0x258
 };
 
@@ -97,7 +99,7 @@ static_assert(offsetof(XboxKpcr, PrcbData.NextThread) == 0x2C);
 static_assert(offsetof(XboxKpcr, PrcbData.IdleThread) == 0x30);
 static_assert(offsetof(XboxKpcr, PrcbData.DpcListHead) == 0x50);
 static_assert(offsetof(XboxKpcr, PrcbData.DpcRoutineActive) == 0x58);
-static_assert(offsetof(XboxKprcb, DmEnetFunc) == 0x250);
+static_assert(offsetof(XboxKprcb, DebugMonitorData) == 0x250);
 static_assert(sizeof(XboxKprcb) == 0x258);
 static_assert(sizeof(XboxKpcr) == 0x280);
 static_assert(offsetof(XboxKthread, KernelTime) == 0x18);
