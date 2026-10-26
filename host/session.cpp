@@ -527,8 +527,7 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
     shell.attach_devices(*s.cpu);
     shell.stage(BootStage::Devices, "devices none (the APU, OHCI and NV2A come with U4 and U5)");
 
-    const XbeImage::Tls &tls = s.xbe.tls;
-    uint32_t tls_size = (tls.raw_end.v - tls.raw_start.v) + tls.zero_fill;
+    uint32_t tls_size = s.xbe.tls_block_size();
     uint32_t stack = std::max(s.xbe.stack_commit, kMainStackSize);
     GuestThread &thread0 = GuestThread::spawn(s.xbe.entry, {}, {stack, kMainPriority, true, tls_size});
     s.thread0_id = thread0.host_thread_id();

@@ -67,12 +67,12 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     if (!bva.v || !stack.base.v) return nullptr;
     ThreadBlock *tb = m.host<ThreadBlock>(bva);
     memset(tb, 0, sizeof *tb);
-    // TLS at the top of the stack and StackBase == TlsData, as the Xbox kernel lays a thread out: XAPI reaches a
-    // thread's TLS as [fs:[4] + _tls_index * 4] and writes TlsData[0] = &TlsData[1] in its thread start.
-    uint32_t top = stack.base.v;
-    if (tls_data_size) top = (stack.base.v - (tls_data_size + 4)) & ~15u;
+    // The Xbox kernel's thread layout: TlsData = StackBase - TlsDataSize, the stack below it. XAPI sets _tls_index
+    // to -TlsDataSize / 4 and reads a thread's TLS pointer at [fs:[4] + _tls_index * 4], which is TlsData[0].
+    uint32_t tls = tls_data_size ? stack.base.v - tls_data_size : 0;
+    uint32_t top = tls ? tls & ~15u : stack.base.v;
     XboxKpcr &k = tb->kpcr;
-    k.NtTib.StackBase = top;
+    k.NtTib.StackBase = stack.base.v;
     k.NtTib.StackLimit = stack.limit.v;
     k.NtTib.Self = bva.v;
     k.SelfPcr = bva.v;
@@ -82,15 +82,15 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     k.PrcbData.DpcListHead[0] = k.PrcbData.DpcListHead[1] = bva.v + offsetof(XboxKpcr, PrcbData.DpcListHead);
     k.PrcbData.DmEnetFunc = g_cpu->gates.ret_stub;
     XboxEthread &e = tb->ethread;
-    e.Tcb.StackBase = top;
+    e.Tcb.StackBase = stack.base.v;
     e.Tcb.StackLimit = stack.limit.v;
     e.Tcb.KernelStack = top;
     e.Tcb.State = kKthreadRunning;
     e.Tcb.Priority = e.Tcb.BasePriority = uint8_t(priority);
-    if (tls_data_size) {
-        memset(m.host<void>({top}), 0, tls_data_size + 4);
-        *m.host<uint32_t>({top}) = top + 4;
-        e.Tcb.TlsData = top;
+    if (tls) {
+        memset(m.host<void>({tls}), 0, tls_data_size);
+        *m.host<uint32_t>({tls}) = tls + 4;
+        e.Tcb.TlsData = tls;
     }
     HostPart &h = tb->host;
     h.host_mxcsr = h.guest_mxcsr = kAbiMxcsr;

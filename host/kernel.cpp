@@ -280,11 +280,7 @@ extern "C" uint64_t xbox_frontend_guest_call(uint32_t va, unsigned argc, const u
 extern "C" void *xbox_frontend_spawn_thread(uint32_t entry, unsigned argc, const uint32_t *argv, uint32_t stack_size,
                                             int priority, int suspended, uint32_t *status)
 {
-    uint32_t tls = 0;
-    if (g_setup.xbe) {
-        const auto &t = g_setup.xbe->tls;
-        tls = (t.raw_end.v - t.raw_start.v) + t.zero_fill;
-    }
+    uint32_t tls = g_setup.xbe ? g_setup.xbe->tls_block_size() : 0;
     xbrt::GuestThread &thread =
         xbrt::GuestThread::spawn({entry}, {argv, argc}, {stack_size, priority, suspended != 0, tls});
     HANDLE h = OpenThread(THREAD_ALL_ACCESS, FALSE, thread.host_thread_id());

@@ -138,7 +138,7 @@ struct SpawnOptions {
     uint32_t stack_size;      // PsCreateSystemThreadEx's KernelStackSize, or the XBE's stack commit
     int priority;             // Xbox priority mapped to a host priority
     bool suspended;
-    uint32_t tls_data_size;   // from the XBE TLS directory (raw data plus zero fill)
+    uint32_t tls_data_size;   // XbeImage::tls_block_size(): KTHREAD.TlsData = StackBase - this
 };
 
 // One per host thread that ever runs guest code. A GuestThread owns a ThreadBlock (Xbox KPCR, KPRCB, ETHREAD and TLS

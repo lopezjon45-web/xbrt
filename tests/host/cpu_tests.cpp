@@ -492,8 +492,8 @@ struct Tests {
         g_handlers[104] = [&memory = memory](GuestThread &t, GateFrame &) {
             const ThreadBlock *tb = detail::block_of(t);
             uint32_t data = tb->ethread.Tcb.TlsData;
-            tls = data != 0 && *memory.host<uint32_t>({data}) == data + 4 && tb->kpcr.NtTib.StackBase == data &&
-                  data + 0x40 + 4 <= tb->host.stack_base;
+            tls = data != 0 && *memory.host<uint32_t>({data}) == data + 4 && tb->kpcr.NtTib.StackBase == data + 0x40 &&
+                  tb->host.stack_top <= data;
             exit_depth = tb->host.depth;
             spawned_index = t.index();
             t.exit(0x77);

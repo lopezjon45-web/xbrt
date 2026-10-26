@@ -73,6 +73,7 @@ TEST(parse_xbe_reads_every_field_of_a_synthetic_xbe)
     CHECK_EQ(x.tls.raw_end.v, 0u);
     CHECK_EQ(x.tls.index_var.v, kTlsIndexVar);
     CHECK_EQ(x.tls.zero_fill, kTlsZeroFill);
+    CHECK_EQ(x.tls_block_size(), 0x94u);
 
     CHECK_EQ(x.libraries.size(), size_t(2));
     if (x.libraries.size() == 2) {

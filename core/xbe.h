@@ -52,6 +52,9 @@ struct XbeImage {
     const XbeSection *section_at(GuestVa va) const;
     // Eight hex digits ("FFFF0042"), as LocalState folders and the survey name titles.
     std::string title_id_hex() const;
+    // Each thread's TLS block (PsCreateSystemThreadEx's TlsDataSize): the TLS data rounded up to 16 plus a pointer
+    // slot, as XAPI computes it; 0 without a TLS directory.
+    uint32_t tls_block_size() const;
 };
 
 // Validates every field it returns: the magic, the header size, every section's raw extent against the file and

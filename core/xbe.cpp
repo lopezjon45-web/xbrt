@@ -111,6 +111,12 @@ const XbeSection *XbeImage::section_at(GuestVa va) const
     return nullptr;
 }
 
+uint32_t XbeImage::tls_block_size() const
+{
+    if (!tls.index_var.v) return 0;
+    return ((tls.raw_end.v - tls.raw_start.v + tls.zero_fill + 15) & ~15u) + 4;
+}
+
 std::string XbeImage::title_id_hex() const
 {
     char buf[16];
