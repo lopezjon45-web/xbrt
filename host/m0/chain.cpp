@@ -75,6 +75,28 @@ std::string rewrite_for_d3d(const Shader &shader, std::string &rewrites)
     return glsl;
 }
 
+// SPIRV-Cross copies the geometry shader's position inputs into gl_PositionIn[] in main, but a helper function that reads
+// gl_in[i].gl_Position keeps that GLSL spelling, which HLSL does not declare (fxc X3004). xemu's emit_vertex is such a
+// helper.
+void fix_gs_position_input(std::string &hlsl, std::string &rewrites)
+{
+    static constexpr std::string_view from = "gl_in[", member = "].gl_Position";
+    if (hlsl.find("static float4 gl_PositionIn[") == std::string::npos) return;
+    bool changed = false;
+    for (size_t at = 0; (at = hlsl.find(from, at)) != std::string::npos;) {
+        size_t close = hlsl.find(member, at);
+        size_t bracket = hlsl.find(']', at);
+        if (close == std::string::npos || bracket != close) {
+            at += from.size();
+            continue;
+        }
+        std::string index = hlsl.substr(at + from.size(), close - at - from.size());
+        hlsl.replace(at, close + member.size() - at, "gl_PositionIn[" + index + "]");
+        changed = true;
+    }
+    if (changed) rewrites += rewrites.empty() ? "gs-position-input" : ",gs-position-input";
+}
+
 std::expected<std::vector<uint32_t>, std::string> to_spirv(const std::string &glsl, Stage stage)
 {
     glslang_input_t input{};
@@ -161,6 +183,7 @@ std::expected<Compiled, ChainError> compile(const Shader &shader) noexcept
 
     try {
         out.hlsl = to_hlsl(std::move(*spirv), shader.stage, out.input_locations);
+        if (shader.stage == Stage::Geometry) fix_gs_position_input(out.hlsl, out.rewrites);
     } catch (const std::exception &e) {
         out.ms.cross_ms = now_ms() - t1;
         return std::unexpected(ChainError{Step::SpirvCross, one_line(e.what()), out.ms});

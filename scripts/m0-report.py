@@ -31,7 +31,6 @@ def pct(values, p):
 
 def error_class(text):
     t = re.sub(r"0x[0-9A-Fa-f]+", "N", text)
-    t = re.sub(r"'[^']*'", "'x'", t)
     t = re.sub(r"\b\d+\b", "N", t)
     return t[:120]
 
