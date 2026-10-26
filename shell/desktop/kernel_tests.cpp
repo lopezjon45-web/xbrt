@@ -166,7 +166,8 @@ struct Usb {
 };
 
 // The pad on the root port: the port shows a connected device with its change bit, and through the hub behind it an
-// XID device answers with its descriptors (configuration with interface class 0x58).
+// XID device answers with its descriptors (configuration with interface class 0x58). The driver starts the controller
+// 31 s after the runtime attaches it, as a title with a long start-up does.
 std::string usb_pad_enumerates(GuestMemory &memory)
 {
     GuestVa block = memory.allocate_contiguous(0x1000, 0, 0x03FFFFFF, 0x1000, 0x04);
@@ -174,6 +175,7 @@ std::string usb_pad_enumerates(GuestMemory &memory)
     Usb usb{memory, block.v, memory.physical(block)};
     std::memset(usb.bytes(0), 0, 0x1000);
     xbox_OhciAttach();
+    Sleep(31000);
     usb.set(Usb::kHcca, usb.pa);
     usb.set(Usb::kControlHeadEd, 0);
     usb.set(Usb::kControl, 0x80);                                 // UsbOperational
