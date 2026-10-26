@@ -1,6 +1,3 @@
-// The M0 pipeline corpus: every pipeline upstream xemu's Vulkan renderer created while running nxdk_pgraph_tests, with
-// the GLSL its generators emitted and the Vulkan fixed-function state it was created with (tools/m0/pack-corpus.py
-// writes the bundle). Enum fields hold the Vulkan values; probe.cpp maps them to D3D.
 #pragma once
 
 #include "core/types.h"
@@ -16,7 +13,7 @@ namespace xbrt::m0 {
 enum class Stage : uint8_t { Vertex, Geometry, Pixel };
 
 struct Shader {
-    std::string hash;   // sha256 of the GLSL
+    std::string glsl_sha256;
     Stage stage;
     std::string glsl;
 };
@@ -49,14 +46,14 @@ struct VertexAttribute {
 };
 
 struct Pipeline {
-    int vs = -1, gs = -1, ps = -1;   // indices into Corpus::shaders; gs is -1 when there is none
+    int vs = -1, gs = -1, ps = -1;
     int topology = 0, polygon = 0, front = 0;
     uint32_t cull = 0;
     bool clamp = false;
     int color_format = 0, zeta_format = 0;
     uint32_t push_bytes = 0;
-    std::optional<DepthState> depth;   // absent when the pipeline had no depth attachment
-    std::optional<BlendState> blend;   // absent when it had no color attachment
+    std::optional<DepthState> depth;
+    std::optional<BlendState> blend;
     std::vector<VertexBinding> bindings;
     std::vector<VertexAttribute> attributes;
 };

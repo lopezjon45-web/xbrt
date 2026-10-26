@@ -60,7 +60,6 @@ const char *target(Stage s)
 using ShaderPtr = std::unique_ptr<glslang_shader_t, decltype(&glslang_shader_delete)>;
 using ProgramPtr = std::unique_ptr<glslang_program_t, decltype(&glslang_program_delete)>;
 
-// xemu compiles its GLSL the same way for a Vulkan 1.1 device (vk/glsl.c), without the SPIR-V optimizer.
 std::expected<std::vector<uint32_t>, std::string> to_spirv(const Shader &shader)
 {
     glslang_input_t input{};
@@ -131,7 +130,7 @@ const char *step_name(Step s)
 void chain_init() { glslang_initialize_process(); }
 void chain_finalize() { glslang_finalize_process(); }
 
-std::expected<Compiled, ChainError> compile(const Shader &shader)
+std::expected<Compiled, ChainError> compile(const Shader &shader) noexcept
 {
     Compiled out;
     double t0 = now_ms();

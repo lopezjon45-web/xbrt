@@ -25,9 +25,6 @@ namespace xbrt::m0 {
 
 namespace {
 
-// ---------------------------------------------------------------------------------------------------------------
-// m0.tsv: one row per result, flushed at once; the rows of earlier launches tell this one where to resume.
-
 struct Tsv {
     FILE *f = nullptr;
     template <class... T>
@@ -47,7 +44,7 @@ struct Resume {
     std::set<long> shaders, pipelines;
     bool bench = false, ended = false;
     int launches = 0;
-    std::optional<std::pair<std::string, long>> open_begin;   // a begin row with no result row after it
+    std::optional<std::pair<std::string, long>> unfinished_begin;
 };
 
 std::vector<std::string> fields(const std::string &line)
@@ -67,10 +64,10 @@ Resume read_resume(const std::wstring &path)
     while (std::getline(in, line)) {
         std::vector<std::string> f = fields(line);
         if (f.empty()) continue;
-        if (f[0] == "begin" && f.size() >= 3) r.open_begin = std::make_pair(f[1], std::stol(f[2]));
-        else if (f[0] == "shader" && f.size() >= 2) { r.shaders.insert(std::stol(f[1])); r.open_begin.reset(); }
-        else if (f[0] == "pipeline" && f.size() >= 2) { r.pipelines.insert(std::stol(f[1])); r.open_begin.reset(); }
-        else if (f[0] == "benchdone") { r.bench = true; r.open_begin.reset(); }
+        if (f[0] == "begin" && f.size() >= 3) r.unfinished_begin = std::make_pair(f[1], std::stol(f[2]));
+        else if (f[0] == "shader" && f.size() >= 2) { r.shaders.insert(std::stol(f[1])); r.unfinished_begin.reset(); }
+        else if (f[0] == "pipeline" && f.size() >= 2) { r.pipelines.insert(std::stol(f[1])); r.unfinished_begin.reset(); }
+        else if (f[0] == "benchdone") { r.bench = true; r.unfinished_begin.reset(); }
         else if (f[0] == "launch") r.launches++;
         else if (f[0] == "end") r.ended = true;
     }
@@ -126,16 +123,16 @@ double percentile(std::vector<double> v, double p)
     return v[std::min(v.size() - 1, size_t(p * (v.size() - 1) + 0.5))];
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Vulkan state (as xemu created it) to D3D11. A note names each place the mapping is not one to one: those are rules
-// the renderer must carry, not refusals by the driver.
+struct VertexBuffer {
+    UINT slot, stride;
+};
 
 struct Mapped {
     D3D11_BLEND_DESC blend{};
     D3D11_RASTERIZER_DESC raster{};
     D3D11_DEPTH_STENCIL_DESC depth{};
     std::vector<D3D11_INPUT_ELEMENT_DESC> layout;
-    std::vector<std::pair<UINT, UINT>> buffers;   // slot, stride
+    std::vector<VertexBuffer> buffers;
     D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     D3D12_PRIMITIVE_TOPOLOGY_TYPE type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     UINT vertices = 3;
@@ -322,8 +319,8 @@ Mapped map_pipeline(const Pipeline &p, const std::vector<uint32_t> &vs_inputs)
         m.layout.push_back(e);
     }
     for (const VertexBinding &b : p.bindings)
-        if (b.binding < kSpareSlot) m.buffers.emplace_back(b.binding, b.stride);
-    if (spare) m.buffers.emplace_back(kSpareSlot, 0);
+        if (b.binding < kSpareSlot) m.buffers.push_back({b.binding, b.stride});
+    if (spare) m.buffers.push_back({kSpareSlot, 0});
     std::sort(m.notes.begin(), m.notes.end());
     m.notes.erase(std::unique(m.notes.begin(), m.notes.end()), m.notes.end());
     return m;
@@ -374,10 +371,6 @@ D3D12_DEPTH_STENCIL_DESC to12(const D3D11_DEPTH_STENCIL_DESC &s)
     return o;
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// The device: D3D12 (default adapter or WARP) under D3D11On12 at 11_1, the way shell/uwp/gfx.cpp makes it, plus the
-// pieces every probe draw shares.
-
 constexpr UINT kTarget = 16;
 
 struct Device {
@@ -426,8 +419,6 @@ std::string create_device(bool warp, Device &d)
     hr = D3D11On12CreateDevice(d.dev12.Get(), 0, levels, 1, queues, 1, 0, &d.dev11, &d.ctx, &d.level);
     if (FAILED(hr)) return "D3D11On12CreateDevice 11_1 hr=" + hex(hr);
 
-    // One root signature for the direct D3D12 pipelines: every CBV, SRV and sampler register the generated HLSL can
-    // name, visible to every stage.
     D3D12_DESCRIPTOR_RANGE ranges[3] = {
         {D3D12_DESCRIPTOR_RANGE_TYPE_CBV, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, 0, 0, 0},
         {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, 0, 0, 0},
@@ -456,8 +447,6 @@ std::string create_device(bool warp, Device &d)
     if (FAILED(hr = d.dev11->CreateBuffer(&dcb, nullptr, &d.draw_cb))) return "draw constant buffer hr=" + hex(hr);
     D3D11_QUERY_DESC qs{D3D11_QUERY_PIPELINE_STATISTICS, 0};
     if (FAILED(hr = d.dev11->CreateQuery(&qs, &d.stats))) return "statistics query hr=" + hex(hr);
-    // The bench waits for each frame on a D3D12 fence signalled on the queue D3D11On12 submits to, so the wait
-    // blocks instead of spinning and the thread's CPU time is the submission alone.
     if (FAILED(hr = d.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d.fence)))) return "fence hr=" + hex(hr);
     d.fence_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     return "";
@@ -503,9 +492,6 @@ ID3D11DepthStencilView *depth_for(Device &d, DXGI_FORMAT f, std::vector<std::str
     return view.Get();
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// One pipeline's D3D11 objects, made and bound the way the renderer will.
-
 struct Objects {
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11GeometryShader> gs;
@@ -519,7 +505,6 @@ struct Objects {
     Mapped m;
 };
 
-// Empty on success, else the object that failed and its HRESULT.
 std::string make_objects(Device &d, const Compiled &vs, const Compiled *gs, const Compiled &ps, Objects &o)
 {
     HRESULT hr;
@@ -558,10 +543,10 @@ void bind_targets(Device &d, const Objects &o)
 void bind_pipeline(Device &d, const Objects &o)
 {
     d.ctx->IASetInputLayout(o.layout.Get());
-    for (const auto &[slot, stride] : o.m.buffers) {
+    for (const VertexBuffer &b : o.m.buffers) {
         ID3D11Buffer *vb = d.zero_vb.Get();
         UINT offset = 0;
-        d.ctx->IASetVertexBuffers(slot, 1, &vb, &stride, &offset);
+        d.ctx->IASetVertexBuffers(b.slot, 1, &vb, &b.stride, &offset);
     }
     d.ctx->IASetPrimitiveTopology(o.m.topology);
     d.ctx->VSSetShader(o.vs.Get(), nullptr, 0);
@@ -573,7 +558,6 @@ void bind_pipeline(Device &d, const Objects &o)
     d.ctx->OMSetDepthStencilState(o.depth.Get(), 0);
 }
 
-// Waits for a query issued and flushed; false after `limit_ms`.
 template <class T>
 bool wait_query(Device &d, ID3D11Query *q, T &data, double limit_ms)
 {
@@ -584,10 +568,6 @@ bool wait_query(Device &d, ID3D11Query *q, T &data, double limit_ms)
     }
     return true;
 }
-
-// ---------------------------------------------------------------------------------------------------------------
-// One pipeline: the direct D3D12 pipeline state, then the D3D11On12 objects and one draw. Runs under a structured
-// exception guard; anything it catches becomes the row's "thrown".
 
 struct PipelineRun {
     Device *d;
@@ -668,7 +648,7 @@ void run_pipeline(PipelineRun &r)
 
 struct Guarded {
     PipelineRun *run;
-    std::string cxx;   // a C++ exception's text
+    std::string cxx_exception;
 };
 
 void guarded_body(void *p)
@@ -677,9 +657,9 @@ void guarded_body(void *p)
     try {
         run_pipeline(*g.run);
     } catch (const std::exception &e) {
-        g.cxx = std::string("C++ exception: ") + e.what();
+        g.cxx_exception = std::string("C++ exception: ") + e.what();
     } catch (...) {
-        g.cxx = "C++ exception of unknown type";
+        g.cxx_exception = "C++ exception of unknown type";
     }
 }
 
@@ -693,20 +673,17 @@ DWORD seh_call(void (*fn)(void *), void *ctx)
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// The draw-cost bench: 1,000 one-triangle draws a frame into a small target, flushed, then the frame waited for.
-
 struct BenchResult {
     std::vector<double> frame_ms, wait_ms;
     double thread_cpu_ms = 0, process_cpu_ms = 0;
 };
 
 enum class Variant { Same, Switch, SwitchCb };
+constexpr unsigned kDraws = 1000;
 constexpr UINT kBenchCbSlot = 11;
 
 BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsigned frames)
 {
-    constexpr unsigned kDraws = 1000;
     BenchResult r;
     bind_targets(d, a);
     bind_pipeline(d, a);
@@ -720,8 +697,6 @@ BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsi
         for (unsigned i = 0; i < kDraws; i++) {
             if (v != Variant::Same && i % 2 == 0) bind_pipeline(d, (i / 2) % 2 ? b : a);
             if (v == Variant::SwitchCb) {
-                // 1 KB of uniforms per draw into a slot the shaders do not read: the update's CPU cost without
-                // changing what the draw computes.
                 D3D11_MAPPED_SUBRESOURCE map;
                 if (SUCCEEDED(d.ctx->Map(d.draw_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map))) {
                     float *c = static_cast<float *>(map.pData);
@@ -750,12 +725,9 @@ BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsi
     return r;
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// The shader cache next to m0.tsv: a relaunch reloads DXBC instead of compiling the corpus again.
-
 std::wstring cache_path(const std::wstring &dir, const Shader &s)
 {
-    return dir + L"\\m0-dxbc\\" + std::wstring(s.hash.begin(), s.hash.end()) + L".bin";
+    return dir + L"\\m0-dxbc\\" + std::wstring(s.glsl_sha256.begin(), s.glsl_sha256.end()) + L".bin";
 }
 
 void save_compiled(const std::wstring &dir, const Shader &s, const Compiled &c)
@@ -820,7 +792,6 @@ void clear_shader_caches(Device &d, Tsv &tsv)
         tsv.row("cache", k.name, hex(dev9->ShaderCacheControl(k.kind, D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR)));
 }
 
-// The status lines: counts and medians over every row of m0.tsv, so a resumed run reports the whole corpus.
 void summarize(const std::wstring &path, const LineSink &sink)
 {
     std::ifstream in(path);
@@ -891,11 +862,11 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         return Outcome::Done;
     }
     const Corpus &c = *corpus;
-    if (resume.open_begin) {
-        const auto &[kind, id] = *resume.open_begin;
+    if (resume.unfinished_begin) {
+        const auto &[kind, id] = *resume.unfinished_begin;
         if (kind == "shader") {
             const Shader &s = c.shaders[size_t(id)];
-            tsv.row("shader", id, stage_name(s.stage), s.hash.substr(0, 12), "died", "-", 0, 0, 0, 0, 0,
+            tsv.row("shader", id, stage_name(s.stage), s.glsl_sha256.substr(0, 12), "died", "-", 0, 0, 0, 0, 0,
                     "the process ended inside this shader");
             resume.shaders.insert(id);
         } else if (kind == "pipeline") {
@@ -947,12 +918,12 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         tsv.row("begin", "shader", i);
         std::expected<Compiled, ChainError> r = compile(s);
         if (r) {
-            tsv.row("shader", i, stage_name(s.stage), s.hash.substr(0, 12), "ok", "-", fixed(r->ms.glslang_ms),
+            tsv.row("shader", i, stage_name(s.stage), s.glsl_sha256.substr(0, 12), "ok", "-", fixed(r->ms.glslang_ms),
                     fixed(r->ms.cross_ms), fixed(r->ms.d3dcompile_ms), r->hlsl.size(), r->dxbc.size(), "-");
             save_compiled(opt.out_dir, s, *r);
             compiled[i] = std::move(*r);
         } else {
-            tsv.row("shader", i, stage_name(s.stage), s.hash.substr(0, 12), "fail", step_name(r.error().step),
+            tsv.row("shader", i, stage_name(s.stage), s.glsl_sha256.substr(0, 12), "fail", step_name(r.error().step),
                     fixed(r.error().ms.glslang_ms), fixed(r.error().ms.cross_ms), fixed(r.error().ms.d3dcompile_ms), 0, 0,
                     r.error().message);
         }
@@ -977,9 +948,9 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         if (code) {
             run.r11 = "thrown";
             run.detail = "structured exception " + hex(code);
-        } else if (!g.cxx.empty()) {
+        } else if (!g.cxx_exception.empty()) {
             run.r11 = "thrown";
-            run.detail = g.cxx;
+            run.detail = g.cxx_exception;
         }
         tsv.row("pipeline", j, run.r11, run.r12, hex(run.hr12), fixed(run.ms12), fixed(run.ms_create),
                 fixed(run.ms_draw), fixed(run.ms_wait), run.vs_invocations, join(run.m.notes),
@@ -996,7 +967,6 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
 
     if (!resume.bench) {
         tsv.row("begin", "bench", 0);
-        // Two accepted triangle-list pipelines with no geometry shader and different shaders, as a scene would switch.
         std::vector<size_t> ok;
         {
             std::ifstream in(path);
@@ -1036,10 +1006,11 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
                 } variants[] = {{Variant::Same, "same"}, {Variant::Switch, "switch"}, {Variant::SwitchCb, "switch_cb"}};
                 for (const auto &[v, name] : variants) {
                     BenchResult r = bench(dev, oa, ob, v, opt.bench_frames);
-                    // 1,000 draws a frame, so milliseconds per frame read as microseconds per draw.
-                    double draws = double(r.frame_ms.size()) * 1000.0;
-                    tsv.row("bench", name, r.frame_ms.size(), 1000, fixed(percentile(r.frame_ms, 0.5), 2),
-                            fixed(percentile(r.frame_ms, 0.95), 2), fixed(percentile(r.frame_ms, 0.5) * 1000.0, 0),
+                    std::vector<double> draw_us;
+                    for (double ms : r.frame_ms) draw_us.push_back(ms * 1000.0 / kDraws);
+                    double draws = double(r.frame_ms.size()) * kDraws;
+                    tsv.row("bench", name, r.frame_ms.size(), kDraws, fixed(percentile(draw_us, 0.5), 2),
+                            fixed(percentile(draw_us, 0.95), 2), fixed(percentile(r.frame_ms, 0.5) * 1000.0, 0),
                             fixed(percentile(r.frame_ms, 0.95) * 1000.0, 0), fixed(r.thread_cpu_ms * 1000.0 / draws, 2),
                             fixed(r.process_cpu_ms * 1000.0 / draws, 2), fixed(percentile(r.wait_ms, 0.5), 2));
                 }

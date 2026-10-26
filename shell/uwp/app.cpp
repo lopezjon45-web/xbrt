@@ -55,7 +55,6 @@ std::optional<Failure> g_first_failure;
 std::atomic<bool> g_guest_left{false};
 // The Devices stage has passed: the title's pad exists and the pad line can be shown.
 std::atomic<bool> g_devices_attached{false};
-// launch.txt reading exactly "m0-probe" runs the M0 shader and draw-cost probe instead of a game (console/run-m0.sh).
 bool g_m0 = false;
 
 std::string utf8(std::u16string_view s)
@@ -253,8 +252,6 @@ void list_library()
     if (f) fclose(f);
 }
 
-// The corpus ships in the package (build.ps1); results go to LocalState\m0.tsv. A relaunch line tells
-// console/run-m0.sh to start the app again: a pipeline broke the device, and m0.tsv says where to resume.
 void run_m0()
 {
     std::wstring corpus_path =

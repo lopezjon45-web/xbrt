@@ -83,8 +83,6 @@ jobs:
         shell: bash
         run: |
           if [ -e host/cpu_pending.cpp ]; then echo "host/cpu_pending.cpp is on main; delete it for the real definitions"; exit 1; fi
-      # The M0 corpus: the pipelines upstream xemu's generators made for nxdk_pgraph_tests, published by the public
-      # fork's m0-corpus workflow and pinned by tools/m0/corpus.lock. build.ps1 puts the bundle in the package.
       - name: Fetch the M0 corpus
         if: hashFiles('tools/m0/corpus.lock') != ''
         shell: bash
@@ -134,9 +132,6 @@ jobs:
           Copy-Item kernel-tests.txt ..\out\kernel-tests.txt -ErrorAction SilentlyContinue
       - name: Judge the kernel adapter tests
         run: python scripts/check-kernel-tests.py out/kernel-tests.txt
-      # The M0 probe on WARP, started again after each launch a pipeline ends (exit 2), as console/run-m0.sh does on
-      # the console. WARP is not the console's driver: the run proves the probe and the chain, and the report is
-      # printed, not gated; the decision is the console's.
       - name: Run the M0 probe on WARP
         if: hashFiles('tools/m0/corpus.lock') != ''
         shell: powershell

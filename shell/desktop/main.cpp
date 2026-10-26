@@ -232,8 +232,6 @@ int run_xbe(const RunArgs &args)
     return why == xbrt::ExitReason::Fatal ? 2 : 0;
 }
 
-// The M0 probe on WARP, writing m0.tsv in the current folder. Exit 0 when m0.tsv has its end row, 2 when a pipeline
-// broke the device and the probe must be started again to go on, 1 when it cannot run.
 int run_m0(const char *bundle)
 {
     std::ifstream in(bundle, std::ios::binary);

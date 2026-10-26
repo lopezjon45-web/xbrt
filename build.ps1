@@ -60,9 +60,6 @@ Run cl.exe ($cflags + @("/DUNICODE", "/D_UNICODE", "/DWINAPI_FAMILY=WINAPI_FAMIL
     "/DXBOXRECOMP_UWP=1", "/DXBOXRECOMP_FRONTEND_DIRECT=1", "/FI$root\$fork\src\platform\app_partition.h",
     "/I$fork\src\kernel", "/I$fork\src", "/I$fork\include", "/c", "/Fdgen\fork\", "/Fogen\fork\") + $forkSources)
 Run lib.exe (@("/nologo", "/OUT:gen\fork\xboxrecomp_kernel.lib") + (Get-ChildItem gen\fork\*.obj | ForEach-Object { $_.FullName }))
-# The M0 shader chain's libraries, built by their own CMake: glslang without the SPIR-V optimizer or HLSL input, and
-# SPIRV-Cross's core, GLSL and HLSL backends. The static CRT matches /MT; the CL variable keeps the STL's AVX2
-# vector-algorithm bodies out of them as it does for xbrt's own code.
 $env:CL = "/D_USE_STD_VECTOR_ALGORITHMS=0"
 $cmakeCommon = @("-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl")
@@ -167,7 +164,6 @@ foreach ($manifest in Get-ChildItem gen\manifests\*.xml) {
     Remove-Item -Recurse -Force $payload -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $payload | Out-Null
     Copy-Item gen\xbrt.exe "$payload\xbrt.exe"
-    # The M0 probe's corpus (CI fetches it from the pinned m0-corpus release; tools/m0/corpus.lock).
     if (Test-Path gen\m0-corpus.txt) { Copy-Item gen\m0-corpus.txt "$payload\m0-corpus.txt" }
     Run python.exe @("-I", "package\make-assets.py", "$payload\Assets")
     Copy-Item $manifest.FullName "$payload\AppxManifest.xml"

@@ -1,6 +1,3 @@
-// The shader chain the renderer will run: xemu's GLSL (Vulkan dialect) -> glslang -> SPIR-V -> SPIRV-Cross -> HLSL
-// shader model 5.0 -> D3DCompile -> DXBC. Each step is timed on its own, so the console's numbers say which step a
-// shader cache has to skip.
 #pragma once
 
 #include "host/m0/corpus.h"
@@ -37,7 +34,6 @@ struct ChainError {
 void chain_init();
 void chain_finalize();
 
-// Runs the whole chain on one shader. Throws nothing: a C++ exception from a step is that step's ChainError.
-std::expected<Compiled, ChainError> compile(const Shader &shader);
+std::expected<Compiled, ChainError> compile(const Shader &shader) noexcept;
 
 }  // namespace xbrt::m0

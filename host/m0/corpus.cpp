@@ -66,7 +66,7 @@ Parsed<Corpus> parse_corpus(std::string_view bundle)
         std::vector<std::string_view> f = split(l, ' ');
         if (f[0] == "shader" && f.size() == 4) {
             Shader s;
-            s.hash = f[1];
+            s.glsl_sha256 = f[1];
             if (f[2] == "v") s.stage = Stage::Vertex;
             else if (f[2] == "g") s.stage = Stage::Geometry;
             else if (f[2] == "f") s.stage = Stage::Pixel;
@@ -75,7 +75,7 @@ Parsed<Corpus> parse_corpus(std::string_view bundle)
             if (!number(f[3], bytes) || bytes + 1 > c.rest.size()) return std::unexpected(where + "bad length");
             s.glsl = c.rest.substr(0, bytes);
             c.rest = c.rest.substr(bytes + 1);
-            by_hash.emplace(s.hash, int(corpus.shaders.size()));
+            by_hash.emplace(s.glsl_sha256, int(corpus.shaders.size()));
             corpus.shaders.push_back(std::move(s));
             continue;
         }

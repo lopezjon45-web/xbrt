@@ -23,7 +23,6 @@ STAGES = {"vert": "v", "geom": "g", "frag": "f"}
 
 
 def flat(p):
-    """The record's state as key=value tokens, in a fixed order."""
     t = [
         f"topology={p['topology']}",
         f"polygon={p['raster']['polygon_mode']}",

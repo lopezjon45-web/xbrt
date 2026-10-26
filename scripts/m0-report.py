@@ -30,7 +30,6 @@ def pct(values, p):
 
 
 def error_class(text):
-    """The error with numbers, names and hashes taken out, so the same failure on many shaders is one class."""
     t = re.sub(r"0x[0-9A-Fa-f]+", "N", text)
     t = re.sub(r"'[^']*'", "'x'", t)
     t = re.sub(r"\b\d+\b", "N", t)

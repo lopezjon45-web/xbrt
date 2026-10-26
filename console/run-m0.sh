@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 # run-m0.sh <release dir> [--launches N] [--deadline S]
 #
-# The M0 probe on the console (host/m0/probe.h): installs the build's LopezJon.XboxRuntime package, whose payload carries
-# m0-corpus.txt, writes launch.txt "m0-probe", and starts the app until LocalState\m0.tsv has its end row. A launch
-# that ends with "m0 relaunch" in run.txt, or whose process disappears without END, is started again (m0.tsv tells
-# the app where to resume), up to --launches. Then m0.tsv, every launch's run.txt and a screenshot come home, and
-# scripts/m0-report.py applies the decision rule.
-#
 # <release dir> is a download of one CI prerelease (gh release download build-N -D <dir>). Acts on the console only
 # while ~/mesa-one-s/xbox/console-free reads exactly "xbrt-m0". Never uninstalls anything. Runs in the foreground.
 # DRY_RUN=1 does the Mac-side checks and stops.
@@ -106,7 +100,6 @@ stop_once() {
     esac
 }
 
-# launch_once <n>: start, wait for END in run.txt or for the process to go; prints done, relaunch or gone
 launch_once() {
     local n=$1 t0=$SECONDS seen=0 absent=0 run="$OUT/run-$1.txt"
     start_once "$OUT/start-$n.txt" >&2 || { echo gone; return; }
