@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 Set-Location $root
 # Each CI run is a new version, so the console takes it as an update rather than a reinstall.
-$pkgVersion = "0.1.$(if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } else { 0 }).0"
+$pkgVersion = "0.2.$(if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } else { 0 }).0"
 foreach ($d in "gen", "gen\core", "gen\host", "gen\uwp", "gen\desktop", "gen\tests", "gen\inspect", "gen\manifests", "pkg", "out") {
     New-Item -ItemType Directory -Force $d | Out-Null
 }
