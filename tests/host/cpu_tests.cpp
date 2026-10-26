@@ -130,14 +130,15 @@ struct Tests {
         const Case cases[] = {
             {"enter64", detail::emit_enter64(), true,
              "push push push push push push push push sub movdqa movdqa mov mov mov mov ldmxcsr fldcw mov mov mov mov mov mov "
-             "mov lea mov mov mov xor xor xor xor xor retf"},
+             "mov lea mov mov mov mov mov xor xor xor xor xor retf"},
             {"exit32", detail::emit_exit32(0x90010000), false, "jmp-far"},
             {"exit64", detail::emit_exit64(), true,
              "mov stmxcsr fnstcw ldmxcsr fldcw cld mov shl or mov mov movdqa movdqa add pop pop pop pop pop pop pop pop ret"},
             {"full_gate64", detail::emit_full_gate64(0x7FF612345678ull), true,
              "mov mov lea mov mov mov mov mov mov mov mov mov mov stmxcsr fnstcw ldmxcsr fldcw cld lea mov mov call ldmxcsr "
-             "fldcw mov mov mov mov mov mov mov mov mov mov lea mov mov retf"},
-            {"resume64", detail::emit_resume64(), true, "mov fxrstor mov push popfq mov mov mov mov mov mov mov mov mov mov lea mov mov retf"},
+             "fldcw mov mov mov mov mov mov mov mov mov mov mov mov lea mov mov retf"},
+            {"resume64", detail::emit_resume64(), true,
+             "mov fxrstor mov push popfq mov mov mov mov mov mov mov mov mov mov mov mov lea mov mov retf"},
             {"unwind64", detail::emit_unwind64(0x90000100), true, "mov mov mov mov shr mov jmp"},
             {"id_stub", detail::emit_id_stub(0x201, 0x90010008), false, "mov jmp-far int3 int3 int3 int3 int3"},
             {"patch", detail::emit_patch(0x90010010, 7), false, "call-far nop"},

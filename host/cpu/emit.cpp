@@ -97,12 +97,21 @@ struct X64 {
     void or64(unsigned dst, unsigned src) { op_rr(true, {0x09}, src, dst); }
     void popfq() { byte(0x9D); }
     void retf() { byte(0xCB); }
+    // AMD processors can return from a system call with SS's hidden descriptor unusable; 64-bit code never notices,
+    // but compat-mode code faults on its first stack access (measured on EPYC CI hosts). A reload refreshes it.
+    void reload_ss()
+    {
+        bytes({0x41, 0xB9});   // mov r9d, kFlatData
+        u32(kFlatData);
+        bytes({0x41, 0x8E, 0xD1});   // mov ss, r9w
+    }
     void ret() { byte(0xC3); }
     void cld() { byte(0xFC); }
     void ud2() { bytes({0x0F, 0x0B}); }
 
     void far_return_to_guest(unsigned esp_reg, unsigned eip_reg)
     {
+        reload_ss();
         mov_rr32(rsp, esp_reg);
         lea64(rsp, rsp, -8);
         store32(rsp, 0, eip_reg);
@@ -145,6 +154,7 @@ std::vector<uint8_t> emit_enter64()
     a.store32(rsp, 0, r8);
     a.store_imm32(rsp, 4, kCompatCs);
     a.mov_rr32(rdx, r9);
+    a.reload_ss();
     for (unsigned r : {rax, rbx, rbp, rsi, rdi}) a.xor32(r);
     a.retf();
     return a.b;
