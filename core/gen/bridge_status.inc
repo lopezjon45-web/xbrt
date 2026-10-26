@@ -102,7 +102,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 99 bridge_KeDelayExecutionThread
     BridgeStatus::Full,   // 100 bridge_KeDisconnectInterrupt
     BridgeStatus::NoOp,   // 101 bridge_KeEnterCriticalRegion
-    BridgeStatus::Full,   // 102 bridge_MmGlobalData
+    BridgeStatus::Data,   // 102 kernel data page
     BridgeStatus::Full,   // 103 bridge_KeGetCurrentIrql
     BridgeStatus::Full,   // 104 bridge_KeGetCurrentThread
     BridgeStatus::Full,   // 105 bridge_KeInitializeApc
@@ -120,7 +120,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Stub,   // 117 bridge_KeInsertQueue
     BridgeStatus::Stub,   // 118 bridge_KeInsertQueueApc
     BridgeStatus::Full,   // 119 bridge_KeInsertQueueDpc
-    BridgeStatus::Full,   // 120 bridge_KeInterruptTime
+    BridgeStatus::Data,   // 120 kernel data page
     BridgeStatus::Stub,   // 121 bridge_KeIsExecutingDpc
     BridgeStatus::NoOp,   // 122 bridge_KeLeaveCriticalRegion
     BridgeStatus::Full,   // 123 bridge_KePulseEvent
@@ -154,7 +154,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 151 bridge_KeStallExecutionProcessor
     BridgeStatus::Full,   // 152 bridge_KeSuspendThread
     BridgeStatus::Full,   // 153 bridge_KeSynchronizeExecution
-    BridgeStatus::Full,   // 154 bridge_KeSystemTime
+    BridgeStatus::Data,   // 154 kernel data page
     BridgeStatus::Stub,   // 155 bridge_KeTestAlertThread
     BridgeStatus::Data,   // 156 kernel data page
     BridgeStatus::Data,   // 157 kernel data page
@@ -162,7 +162,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 159 bridge_KeWaitForSingleObject
     BridgeStatus::Full,   // 160 bridge_KfRaiseIrql
     BridgeStatus::Full,   // 161 bridge_KfLowerIrql
-    BridgeStatus::Full,   // 162 bridge_KiBugCheckData
+    BridgeStatus::Data,   // 162 kernel data page
     BridgeStatus::Stub,   // 163 bridge_KiUnlockDispatcherDatabase
     BridgeStatus::Data,   // 164 kernel data page
     BridgeStatus::Full,   // 165 bridge_MmAllocateContiguousMemory
@@ -240,16 +240,16 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Stub,   // 237 bridge_NtWriteFileGather
     BridgeStatus::Full,   // 238 bridge_NtYieldExecution
     BridgeStatus::Stub,   // 239 bridge_ObCreateObject
-    BridgeStatus::Full,   // 240 bridge_ObDirectoryObjectType
+    BridgeStatus::Data,   // 240 kernel data page
     BridgeStatus::Stub,   // 241 bridge_ObInsertObject
     BridgeStatus::NoOp,   // 242 bridge_ObMakeTemporaryObject
     BridgeStatus::Stub,   // 243 bridge_ObOpenObjectByName
     BridgeStatus::Stub,   // 244 bridge_ObOpenObjectByPointer
-    BridgeStatus::Full,   // 245 bridge_ObpObjectHandleTable
+    BridgeStatus::Data,   // 245 kernel data page
     BridgeStatus::Full,   // 246 bridge_ObReferenceObjectByHandle
     BridgeStatus::Full,   // 247 bridge_ObReferenceObjectByName
     BridgeStatus::Stub,   // 248 bridge_ObReferenceObjectByPointer
-    BridgeStatus::Full,   // 249 bridge_ObSymbolicLinkObjectType
+    BridgeStatus::Data,   // 249 kernel data page
     BridgeStatus::Full,   // 250 bridge_ObfDereferenceObject
     BridgeStatus::Full,   // 251 bridge_ObfReferenceObject
     BridgeStatus::Full,   // 252 bridge_PhyGetLinkState
@@ -321,7 +321,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 318 bridge_RtlUshortByteSwap
     BridgeStatus::Stub,   // 319 bridge_RtlWalkFrameChain
     BridgeStatus::Full,   // 320 bridge_RtlZeroMemory
-    BridgeStatus::Full,   // 321 bridge_XboxEEPROMKey
+    BridgeStatus::Data,   // 321 kernel data page
     BridgeStatus::Data,   // 322 kernel data page
     BridgeStatus::Data,   // 323 kernel data page
     BridgeStatus::Data,   // 324 kernel data page
