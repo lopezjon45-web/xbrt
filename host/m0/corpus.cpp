@@ -129,6 +129,7 @@ Parsed<Corpus> parse_corpus(std::string_view bundle)
                 VertexAttribute &a = p.attributes.emplace_back();
                 ok = numbers(v, a.location, a.binding, a.format, a.offset);
             }
+            else if (k == "suite") p.suite = v;
             else return std::unexpected(where + "unknown key " + std::string(k));
             if (!ok) return std::unexpected(where + "bad value for " + std::string(k));
         }

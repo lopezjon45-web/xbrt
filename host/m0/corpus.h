@@ -56,6 +56,7 @@ struct Pipeline {
     std::optional<BlendState> blend;
     std::vector<VertexBinding> bindings;
     std::vector<VertexAttribute> attributes;
+    std::string suite;
 };
 
 struct Corpus {

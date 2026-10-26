@@ -84,10 +84,12 @@ def analyse(rows):
     if notes:
         out.append("  renderer mapping rules exercised: " + ", ".join(f"{k} {n}" for k, n in notes.most_common()))
 
+    refusing_suites = Counter()
     for r in pipes:
         res, r12, hr12, detail = r[2], r[3], r[4], (r[11] if len(r) > 11 else "-")
         if res == "ok":
             continue
+        refusing_suites[r[12] if len(r) > 12 else "-"] += 1
         if res == "shader_failed":
             refusals.append("shader chain failed (see chain FAIL)")
         elif res == "create_fail":
@@ -102,6 +104,8 @@ def analyse(rows):
             unattributed.append(f"pipeline {r[1]} {res} (D3D12 {r12} hr={hr12}) {detail}")
     for cls, n in Counter(refusals).most_common():
         out.append(f"  refusal {n}: {cls}")
+    if refusing_suites:
+        out.append("  refusals by test suite: " + ", ".join(f"{k} {n}" for k, n in refusing_suites.most_common(15)))
 
     for name in ("same", "switch", "switch_cb"):
         b = benches.get(name)

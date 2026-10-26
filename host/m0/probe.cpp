@@ -694,8 +694,12 @@ BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsi
             proc0 = process_cpu_ms();
         }
         double t0 = now_ms();
+        const Objects *bound = &a;
         for (unsigned i = 0; i < kDraws; i++) {
-            if (v != Variant::Same && i % 2 == 0) bind_pipeline(d, (i / 2) % 2 ? b : a);
+            if (v != Variant::Same && i % 2 == 0) {
+                bound = (i / 2) % 2 ? &b : &a;
+                bind_pipeline(d, *bound);
+            }
             if (v == Variant::SwitchCb) {
                 D3D11_MAPPED_SUBRESOURCE map;
                 if (SUCCEEDED(d.ctx->Map(d.draw_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map))) {
@@ -706,7 +710,7 @@ BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsi
                 ID3D11Buffer *cb = d.draw_cb.Get();
                 d.ctx->VSSetConstantBuffers(kBenchCbSlot, 1, &cb);
             }
-            d.ctx->Draw(3, 0);
+            d.ctx->Draw(bound->m.vertices, 0);
         }
         d.ctx->Flush();
         double t1 = now_ms();
@@ -870,7 +874,8 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
                     "the process ended inside this shader");
             resume.shaders.insert(id);
         } else if (kind == "pipeline") {
-            tsv.row("pipeline", id, "died", "-", "-", 0, 0, 0, 0, 0, 0, "-", "the process ended inside this pipeline");
+            tsv.row("pipeline", id, "died", "-", "-", 0, 0, 0, 0, 0, 0, "-", "the process ended inside this pipeline",
+                    c.pipelines[size_t(id)].suite);
             resume.pipelines.insert(id);
         } else if (kind == "bench") {
             tsv.row("benchdone", "died");
@@ -938,7 +943,7 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         const std::optional<Compiled> &vs = compiled[size_t(p.vs)], &ps = compiled[size_t(p.ps)];
         const std::optional<Compiled> *gs = p.gs >= 0 ? &compiled[size_t(p.gs)] : nullptr;
         if (!vs || !ps || (gs && !*gs)) {
-            tsv.row("pipeline", j, "shader_failed", "skipped", "-", 0, 0, 0, 0, 0, 0, "-", "a stage's chain failed");
+            tsv.row("pipeline", j, "shader_failed", "skipped", "-", 0, 0, 0, 0, 0, 0, "-", "a stage's chain failed", p.suite);
             continue;
         }
         tsv.row("begin", "pipeline", j);
@@ -954,7 +959,7 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         }
         tsv.row("pipeline", j, run.r11, run.r12, hex(run.hr12), fixed(run.ms12), fixed(run.ms_create),
                 fixed(run.ms_draw), fixed(run.ms_wait), run.vs_invocations, join(run.m.notes),
-                run.detail.empty() ? "-" : run.detail);
+                run.detail.empty() ? "-" : run.detail, p.suite.empty() ? "-" : p.suite);
         if ((j + 1) % 200 == 0) sink("m0 pipelines " + std::to_string(j + 1) + "/" + std::to_string(c.pipelines.size()));
         if (run.r11 == "thrown" || run.r11 == "removed") {
             if (FAILED(dev.dev11->GetDeviceRemovedReason()) || code) {
@@ -976,26 +981,33 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
                 if (f.size() > 2 && f[0] == "pipeline" && f[2] == "ok") ok.push_back(size_t(std::stol(f[1])));
             }
         }
+        // Triangle lists first; xemu draws every primitive but points through a geometry shader, so the pair has one.
         std::optional<size_t> a, b;
-        for (size_t j : ok) {
-            const Pipeline &p = c.pipelines[j];
-            if (p.gs >= 0 || p.topology != 3 || p.color_format == 0) continue;
-            if (!a) a = j;
-            else if (p.vs != c.pipelines[*a].vs && p.ps != c.pipelines[*a].ps) {
-                b = j;
-                break;
+        for (bool triangles : {true, false}) {
+            a.reset();
+            b.reset();
+            for (size_t j : ok) {
+                const Pipeline &p = c.pipelines[j];
+                if ((triangles && p.topology != 3) || p.color_format == 0) continue;
+                if (!a) a = j;
+                else if (p.vs != c.pipelines[*a].vs || p.ps != c.pipelines[*a].ps) {
+                    b = j;
+                    break;
+                }
             }
+            if (b) break;
         }
         if (!a || !b) {
-            tsv.row("benchdone", "no two accepted triangle-list pipelines with different shaders");
-            sink("m0 bench not run: no two accepted triangle-list pipelines with different shaders");
+            tsv.row("benchdone", "no two accepted pipelines with different shaders");
+            sink("m0 bench not run: no two accepted pipelines with different shaders");
         } else {
             Objects oa, ob;
             const Pipeline &pa = c.pipelines[*a], &pb = c.pipelines[*b];
             oa.m = map_pipeline(pa, compiled[size_t(pa.vs)]->input_locations);
             ob.m = map_pipeline(pb, compiled[size_t(pb.vs)]->input_locations);
-            std::string fa = make_objects(dev, *compiled[size_t(pa.vs)], nullptr, *compiled[size_t(pa.ps)], oa);
-            std::string fb = make_objects(dev, *compiled[size_t(pb.vs)], nullptr, *compiled[size_t(pb.ps)], ob);
+            auto gs_of = [&](const Pipeline &p) { return p.gs >= 0 ? &*compiled[size_t(p.gs)] : nullptr; };
+            std::string fa = make_objects(dev, *compiled[size_t(pa.vs)], gs_of(pa), *compiled[size_t(pa.ps)], oa);
+            std::string fb = make_objects(dev, *compiled[size_t(pb.vs)], gs_of(pb), *compiled[size_t(pb.ps)], ob);
             if (!fa.empty() || !fb.empty()) {
                 tsv.row("benchdone", "objects failed: " + fa + " " + fb);
             } else {

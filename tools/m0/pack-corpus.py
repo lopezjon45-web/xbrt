@@ -67,7 +67,8 @@ def main(src, out):
         row = " ".join([p["vs"], p["gs"] or "-", p["ps"]] + flat(p))
         if row not in seen:
             seen.add(row)
-            pipelines.append(row)
+            suite = p.get("tag", "").replace(" ", "_") or "-"
+            pipelines.append(f"{row} suite={suite}")
     used = {h for row in pipelines for h in row.split()[:3] if h != "-"}
     missing = used - shaders.keys()
     if missing:
