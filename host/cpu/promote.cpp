@@ -10,13 +10,6 @@ namespace {
 
 uint8_t *host(uint32_t va) { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(va)); }
 
-uint32_t le32(const uint8_t *p)
-{
-    uint32_t v;
-    memcpy(&v, p, 4);
-    return v;
-}
-
 uint32_t variant_for(const VariantKey &key, PatchLockHeld held)
 {
     CpuState &s = *g_cpu;
@@ -56,31 +49,6 @@ void write_site(uint32_t at, const std::vector<uint8_t> &bytes)
 }  // namespace
 
 // The byte forms core/plan.cpp's code map classifies, so a learned site and a planned site name the same kind.
-FsForm classify_fs(std::span<const uint8_t> b)
-{
-    const FsForm other{SiteKind::FsOther, 0, 0, 0};
-    if (b.size() < 6 || b[0] != 0x64) return other;
-    if (b[1] == 0xA1) return {SiteKind::FsLoad, 0, le32(&b[2]), 0};
-    if (b[1] == 0xA3) return {SiteKind::FsStore, 0, le32(&b[2]), 0};
-    if (b.size() < 7) return other;
-    if (b[1] == 0x0F) {
-        bool absolute = b[2] == 0xB6 && (b[3] & 0xC7) == 0x05 && b.size() >= 8;
-        return absolute ? FsForm{SiteKind::FsMovzxByte, uint8_t(b[3] >> 3 & 7), le32(&b[4]), 0} : other;
-    }
-    if ((b[2] & 0xC7) != 0x05) return other;
-    uint8_t reg = b[2] >> 3 & 7;
-    uint32_t disp = le32(&b[3]);
-    switch (b[1]) {
-    case 0x8B: return {SiteKind::FsLoad, reg, disp, 0};
-    case 0x89: return {reg == 4 ? SiteKind::FsStoreEsp : SiteKind::FsStore, reg, disp, 0};
-    case 0x3B: return {SiteKind::FsCmp, reg, disp, 0};
-    case 0x39: return {SiteKind::FsCmpRev, reg, disp, 0};
-    case 0xC7: return reg == 0 && b.size() >= 11 ? FsForm{SiteKind::FsStoreImm, 0, disp, le32(&b[7])} : other;
-    case 0xFF: return reg == 6 ? FsForm{SiteKind::FsPush, 0, disp, 0} : other;
-    case 0x8F: return reg == 0 ? FsForm{SiteKind::FsPop, 0, disp, 0} : other;
-    }
-    return other;
-}
 
 bool promote(const PatchSite &site, bool learned)
 {

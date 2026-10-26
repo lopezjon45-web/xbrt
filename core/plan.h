@@ -31,6 +31,15 @@ struct PatchSite {
     std::array<uint8_t, 15> original;
 };
 
+// One decoded fs-prefixed instruction's gate form (gates.md section 4). Shared by the code map and the trap router's
+// promotion, so both agree on which sites get a micro-gate.
+struct FsForm {
+    SiteKind kind;
+    uint8_t reg;
+    uint32_t disp, imm;
+};
+FsForm classify_fs(std::span<const uint8_t> instruction);
+
 struct CodeMapStats {
     uint32_t bytes_decoded, functions, fs_sites, rdtsc_sites, fs_unpromotable, privileged_sites;
 };

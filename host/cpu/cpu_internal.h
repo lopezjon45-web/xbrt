@@ -149,12 +149,6 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e);
 extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb);
 [[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what);
 
-struct FsForm {
-    SiteKind kind;
-    uint8_t reg;
-    uint32_t disp, imm;
-};
-FsForm classify_fs(std::span<const uint8_t> bytes);
 bool promote(const PatchSite &site, bool learned);
 
 }  // namespace xbrt::detail

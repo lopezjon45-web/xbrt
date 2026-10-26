@@ -29,12 +29,6 @@ std::string_view site_kind_name(SiteKind k)
 
 namespace {
 
-struct FsForm {
-    SiteKind kind;
-    uint8_t reg;
-    uint32_t disp, imm;
-};
-
 uint32_t le32(const uint8_t *p)
 {
     uint32_t v;
@@ -42,31 +36,6 @@ uint32_t le32(const uint8_t *p)
     return v;
 }
 
-FsForm classify_fs(std::span<const uint8_t> b)
-{
-    const FsForm other{SiteKind::FsOther, 0, 0, 0};
-    if (b[0] != 0x64) return other;
-    if (b[1] == 0xA1) return {SiteKind::FsLoad, 0, le32(&b[2]), 0};
-    if (b[1] == 0xA3) return {SiteKind::FsStore, 0, le32(&b[2]), 0};
-    if (b.size() < 7) return other;
-    if (b[1] == 0x0F) {
-        bool absolute = b[2] == 0xB6 && (b[3] & 0xC7) == 0x05;
-        return absolute ? FsForm{SiteKind::FsMovzxByte, uint8_t(b[3] >> 3 & 7), le32(&b[4]), 0} : other;
-    }
-    if ((b[2] & 0xC7) != 0x05) return other;
-    uint8_t reg = b[2] >> 3 & 7;
-    uint32_t disp = le32(&b[3]);
-    switch (b[1]) {
-    case 0x8B: return {SiteKind::FsLoad, reg, disp, 0};
-    case 0x89: return {reg == 4 ? SiteKind::FsStoreEsp : SiteKind::FsStore, reg, disp, 0};
-    case 0x3B: return {SiteKind::FsCmp, reg, disp, 0};
-    case 0x39: return {SiteKind::FsCmpRev, reg, disp, 0};
-    case 0xC7: return reg == 0 ? FsForm{SiteKind::FsStoreImm, 0, disp, le32(&b[7])} : other;
-    case 0xFF: return reg == 6 ? FsForm{SiteKind::FsPush, 0, disp, 0} : other;
-    case 0x8F: return reg == 0 ? FsForm{SiteKind::FsPop, 0, disp, 0} : other;
-    }
-    return other;
-}
 
 std::span<const uint8_t> code_at(const XbeImage &xbe, std::span<const uint8_t> file, GuestVa va)
 {
@@ -93,6 +62,32 @@ bool is_nop_kind(ZydisMnemonic m)
 }
 
 }  // namespace
+
+FsForm classify_fs(std::span<const uint8_t> b)
+{
+    const FsForm other{SiteKind::FsOther, 0, 0, 0};
+    if (b[0] != 0x64) return other;
+    if (b[1] == 0xA1) return {SiteKind::FsLoad, 0, le32(&b[2]), 0};
+    if (b[1] == 0xA3) return {SiteKind::FsStore, 0, le32(&b[2]), 0};
+    if (b.size() < 7) return other;
+    if (b[1] == 0x0F) {
+        bool absolute = b[2] == 0xB6 && (b[3] & 0xC7) == 0x05;
+        return absolute ? FsForm{SiteKind::FsMovzxByte, uint8_t(b[3] >> 3 & 7), le32(&b[4]), 0} : other;
+    }
+    if ((b[2] & 0xC7) != 0x05) return other;
+    uint8_t reg = b[2] >> 3 & 7;
+    uint32_t disp = le32(&b[3]);
+    switch (b[1]) {
+    case 0x8B: return {SiteKind::FsLoad, reg, disp, 0};
+    case 0x89: return {reg == 4 ? SiteKind::FsStoreEsp : SiteKind::FsStore, reg, disp, 0};
+    case 0x3B: return {SiteKind::FsCmp, reg, disp, 0};
+    case 0x39: return {SiteKind::FsCmpRev, reg, disp, 0};
+    case 0xC7: return reg == 0 ? FsForm{SiteKind::FsStoreImm, 0, disp, le32(&b[7])} : other;
+    case 0xFF: return reg == 6 ? FsForm{SiteKind::FsPush, 0, disp, 0} : other;
+    case 0x8F: return reg == 0 ? FsForm{SiteKind::FsPop, 0, disp, 0} : other;
+    }
+    return other;
+}
 
 std::vector<PatchSite> find_sites(const XbeImage &xbe, std::span<const uint8_t> file, const SymbolMap &symbols,
                                   CodeMapStats *stats)

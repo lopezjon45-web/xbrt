@@ -20,11 +20,6 @@ struct ThreadBlock;
 struct ThreadAccess;
 }
 
-struct GuestRange {
-    GuestVa base;
-    uint32_t size;
-};
-
 // One id space for everything a guest call can reach on the host: kernel exports and HLE overrides. The two makers
 // are the only way to build one, and their ranges cannot overlap.
 class HostCallId {
