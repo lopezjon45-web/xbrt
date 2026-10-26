@@ -124,20 +124,34 @@ bool rdtsc_site(uint32_t eip)
     return g_cpu->rdtsc_sites.count(eip) != 0;
 }
 
+struct DeviceScope {
+    ThreadBlock *tb;
+    explicit DeviceScope(ThreadBlock *b) : tb(b) { tb->host.mmio_in_progress++; }
+    ~DeviceScope() { tb->host.mmio_in_progress--; }
+    DeviceScope(const DeviceScope &) = delete;
+    DeviceScope &operator=(const DeviceScope &) = delete;
+};
+
 struct Access {
     Trap &t;
     bool fs;
     uint32_t read(uint32_t addr, unsigned size)
     {
         if (fs && addr < kFsWindow) return load(reinterpret_cast<uint8_t *>(t.tb) + addr, size);
-        if (const MmioMap *m = mmio_at(addr)) return m->device->read({addr}, size);
+        if (const MmioMap *m = mmio_at(addr)) {
+            DeviceScope scope(t.tb);
+            return m->device->read({addr}, size);
+        }
         if (!readable(addr, size)) fatal_trap(t.tb, format("read of unmapped 0x%08X at '%s'", addr, disasm(t).c_str()));
         return load(host(addr), size);
     }
     void write(uint32_t addr, unsigned size, uint32_t v)
     {
         if (fs && addr < kFsWindow) return store(reinterpret_cast<uint8_t *>(t.tb) + addr, size, v);
-        if (const MmioMap *m = mmio_at(addr)) return m->device->write({addr}, size, v);
+        if (const MmioMap *m = mmio_at(addr)) {
+            DeviceScope scope(t.tb);
+            return m->device->write({addr}, size, v);
+        }
         if (!readable(addr, size)) fatal_trap(t.tb, format("write to unmapped 0x%08X at '%s'", addr, disasm(t).c_str()));
         store(host(addr), size, v);
     }

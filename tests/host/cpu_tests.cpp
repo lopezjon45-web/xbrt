@@ -8,6 +8,8 @@
 #include <windows.h>
 #include <intrin.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -524,6 +526,56 @@ struct Tests {
                 detail};
     }
 
+    // Defect: a thread left suspended inside an MMIO access, holding the device's lock, or one never suspended once
+    // it is outside.
+    Result suspend_scope()
+    {
+        struct Device final : MmioDevice {
+            HANDLE parked = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            HANDLE release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            std::atomic<bool> park{true}, stop{false};
+            std::atomic<uint32_t> reads{0};
+            uint32_t read(GuestVa, unsigned) override
+            {
+                reads++;
+                if (park) {
+                    SetEvent(parked);
+                    WaitForSingleObject(release, 10000);
+                }
+                return stop ? 1 : 0;
+            }
+            void write(GuestVa, unsigned, uint32_t) override {}
+        };
+        static Device device;
+        cpu.map_mmio({{0xFD003000}, 0x1000}, device);
+        P p;
+        p.mov_edx_imm(0xFD003000);
+        p.raw({0x8B, 0x02, 0x85, 0xC0, 0x74, 0xFA});   // again: mov eax, [edx]; test eax, eax; jz again
+        p.ret();
+        uint32_t payload = code.put(p.b);
+        GuestThread &t = GuestThread::spawn({payload}, std::span<const uint32_t>{}, SpawnOptions{0x20000, 8, false, 0});
+        HANDLE h = detail::thread_handle(t);
+        DWORD parked = WaitForSingleObject(device.parked, 5000);
+        uint32_t previous = 0;
+        auto start = std::chrono::steady_clock::now();
+        SuspendResult inside = suspend_outside_devices(h, &previous);
+        auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        device.park = false;
+        SetEvent(device.release);
+        SuspendResult outside = suspend_outside_devices(h, &previous);
+        uint32_t before = device.reads;
+        Sleep(30);
+        uint32_t after = device.reads;
+        ResumeThread(h);
+        device.stop = true;
+        DWORD exited = WaitForSingleObject(h, 5000);
+        std::string detail = format("parked=%lu inside=%d after %lld ms, outside=%d previous=%u reads while suspended=%u exited=%lu",
+                                    parked, int(inside), static_cast<long long>(waited), int(outside), previous, after - before, exited);
+        return {parked == WAIT_OBJECT_0 && inside == SuspendResult::InsideDevice && waited >= 10 && outside == SuspendResult::Suspended &&
+                    previous == 0 && after == before && exited == WAIT_OBJECT_0,
+                detail};
+    }
+
     Result fault_gate()
     {
         uint32_t ptr = code.put(detail::emit_far_pointer(detail::g_cpu->gates.fault_gate, detail::kLongCs));
@@ -745,6 +797,7 @@ bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::stri
     report("nested", t.nested());
     report("trap-state", t.trap_state());
     report("spawn-exit", t.spawn_exit());
+    report("suspend-scope", t.suspend_scope());
     report("fault-gate", t.fault_gate());
     report("memory", t.memory_verbs());
     CpuCounters c = cpu.counters();

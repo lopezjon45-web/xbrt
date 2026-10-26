@@ -1,6 +1,7 @@
 #include "host/cpu/cpu_internal.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace xbrt {
@@ -277,6 +278,33 @@ CpuCounters Cpu::counters() const
 }
 
 uint64_t Cpu::guest_tsc() const { return guest_tsc_now(); }
+
+SuspendResult suspend_outside_devices(void *thread, uint32_t *previous)
+{
+    DWORD id = GetThreadId(thread);
+    ThreadBlock *tb = nullptr;
+    {
+        std::lock_guard<std::mutex> hold(g_cpu->threads_lock);
+        for (const std::unique_ptr<GuestThread> &t : g_cpu->threads)
+            if (t && block_of(*t)->host.host_thread_id == id) tb = block_of(*t);
+    }
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
+    for (;;) {
+        DWORD count = SuspendThread(thread);
+        if (count == DWORD(-1)) return SuspendResult::Failed;
+        // SuspendThread returns before the thread has stopped; GetThreadContext waits for it.
+        CONTEXT context{};
+        context.ContextFlags = CONTEXT_CONTROL;
+        GetThreadContext(thread, &context);
+        if (!tb || *static_cast<volatile uint32_t *>(&tb->host.mmio_in_progress) == 0) {
+            *previous = count;
+            return SuspendResult::Suspended;
+        }
+        ResumeThread(thread);
+        if (std::chrono::steady_clock::now() >= deadline) return SuspendResult::InsideDevice;
+        SwitchToThread();
+    }
+}
 
 uint64_t Cpu::device_core_mask() const
 {
