@@ -216,6 +216,11 @@ void report_missing(Missing m) noexcept
     if (g_setup.sink) g_setup.sink->missing(m);
 }
 
+void report_log(std::string_view line) noexcept
+{
+    if (g_setup.sink) g_setup.sink->log(line);
+}
+
 Parsed<void> kernel_install(const KernelSetup &setup)
 {
     if (!setup.memory || !setup.sink) return std::unexpected("kernel: no guest memory or no sink");

@@ -71,12 +71,13 @@ void on_host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
 // What a data export's thunk slot holds: its VA in the kernel data page. 0 for a function export.
 GuestVa kernel_data_export(Ordinal o);
 
-// For the device answers in host/devices.cpp: reports through the installed sink.
+// For the device models (host/devices.cpp, host/xemu): reports through the installed sink.
 void report_missing(Missing m) noexcept;
+void report_log(std::string_view line) noexcept;
 
 // The Devices stage: maps every device model's registers on `cpu` and starts its threads (and the pads' reader).
 // Returns the stage line.
-std::string attach_devices(Cpu &cpu);
+std::string attach_devices(Cpu &cpu, GuestMemory &memory);
 
 // "pad 1: 812 reports to the title, holding A, left stick 32767 0": what the title's own USB code last read from the
 // pad on game port 1. Any thread, after attach_devices.

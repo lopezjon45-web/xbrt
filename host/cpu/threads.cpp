@@ -46,17 +46,25 @@ uint32_t place(uint32_t at, const std::vector<uint8_t> &bytes)
     for (;;) {}
 }
 
+DWORD_PTR process_cores()
+{
+    DWORD_PTR proc = 0, sys = 0;
+    return GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) ? proc : 0;
+}
+
 // All guest threads on one core, as on the console (design.md decision 6, xboxrecomp's xbox_PinToGuestCore rule).
+DWORD_PTR guest_core()
+{
+    static const DWORD_PTR mask = [] {
+        DWORD_PTR proc = process_cores();
+        return (proc & kPreferredGuestCore) ? kPreferredGuestCore : (proc & (~proc + 1));
+    }();
+    return mask;
+}
+
 void pin_to_guest_core()
 {
-    static DWORD_PTR mask = 0;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        DWORD_PTR proc = 0, sys = 0;
-        if (GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) && proc)
-            mask = (proc & kPreferredGuestCore) ? kPreferredGuestCore : (proc & (~proc + 1));
-    });
-    if (mask) SetThreadAffinityMask(GetCurrentThread(), mask);
+    if (DWORD_PTR mask = guest_core()) SetThreadAffinityMask(GetCurrentThread(), mask);
 }
 
 ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priority)
@@ -269,6 +277,14 @@ CpuCounters Cpu::counters() const
 }
 
 uint64_t Cpu::guest_tsc() const { return guest_tsc_now(); }
+
+uint64_t Cpu::device_core_mask() const
+{
+    DWORD_PTR proc = process_cores();
+    if (!g_cpu->options.pin_guest_threads_to_one_core) return proc;
+    DWORD_PTR others = proc & ~guest_core();
+    return others ? others : proc;
+}
 
 GuestThread &GuestThread::current()
 {

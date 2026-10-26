@@ -1,10 +1,11 @@
 // The device models, each an MmioDevice on Cpu::map_mmio. The two USB host controllers are the fork's OHCI model, its
-// pad fed by the fork's input reader from the shell's xbox_shell_pad_read; the NV2A and the APU arrive with U4 and U5,
-// and until then the kernel bridges' questions about them get the answer for a console without them, and a register
-// access is a named Missing.
+// pad fed by the fork's input reader from the shell's xbox_shell_pad_read; the APU is upstream xemu's (host/xemu); the
+// NV2A arrives with U4, and until then the kernel bridges' questions about it get the answer for a console without
+// one, and a register access is a named Missing.
 #include "host/kernel.h"
 
 #include "core/devices.h"
+#include "host/xemu/machine.h"
 
 #include <windows.h>
 
@@ -35,7 +36,7 @@ void register_access(const char *verb, uint32_t va, bool stop)
 
 }  // namespace
 
-std::string xbrt::attach_devices(Cpu &cpu)
+std::string xbrt::attach_devices(Cpu &cpu, GuestMemory &memory)
 {
     static Ohci ohci;
     InputHostConfig input;
@@ -48,7 +49,7 @@ std::string xbrt::attach_devices(Cpu &cpu)
         for (const DeviceAperture &d : kDeviceApertures)
             if (d.name == name) cpu.map_mmio({{d.base}, d.size}, ohci);
     return "devices USB0 and USB1 OHCI, the pad on game port 1 read from " + std::to_string(pads) +
-           " host pad" + (pads == 1 ? "" : "s") + "; no NV2A or APU (U4, U5)";
+           " host pad" + (pads == 1 ? "" : "s") + "; " + attach_xemu_devices(cpu, memory) + "; no NV2A (U4)";
 }
 
 std::string xbrt::pad_line()
@@ -81,12 +82,6 @@ int xbox_frontend_nv2a_attached(void) { return 0; }
 
 // No keyboard: the console has none.
 int xbox_FramebufferKeyDown(int) { return 0; }
-
-// No APU: its interrupt line is never up.
-int xbox_ApuIrqPending(void) { return 0; }
-
-// No NV2A: its interrupt line is never up either.
-int xbox_Nv2aIrqPending(void) { return 0; }
 
 // No push-buffer executor: nothing is queued behind the title, and no NV2A page is modelled.
 uint32_t xbox_Nv2aBacklog(void) { return 0; }
