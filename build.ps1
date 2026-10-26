@@ -151,7 +151,11 @@ $allow = @(
     # the same test at its entry.
     '--allow', '^(sin|cos|tan|log|exp|powf)$',
     '--allow', '^[a-z0-9]+_fma$',
-    '--allow', '^__remainder_piby2_fma3(_bdl)?$'
+    '--allow', '^__remainder_piby2_fma3(_bdl)?$',
+    # cl.exe puts glslang's parser's switch jump table inside yyparse's .text, and dumpbin decodes its 4-byte RVAs as
+    # instructions; with some code layouts one decodes as kmovw (AVX-512), which cl never emits for this x64 target.
+    # dumpbin /disasm /range over the hit shows the table (run 40402027388).
+    '--allow', '^\?yyparse@@YAHPEAVTParseContext@glslang@@@Z$'
 )
 & python scripts\isa-gate.py --tool dumpbin --guards '^([a-z0-9]+_fma|__remainder_piby2_fma3(_bdl)?)$' gen\xbrt.exe |
     Tee-Object -Variable guards | Write-Output
