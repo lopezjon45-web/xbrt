@@ -199,7 +199,7 @@ int run_xbe(const RunArgs &args)
     xbrt::LaunchRequest request;
     request.dir_path = narrow16(args.dir.wstring());
     request.xbe = args.xbe;
-    request.trace = xbrt::Trace::Kernel;   // the CI logs are where a lab's failure is read
+    request.trace = xbrt::Trace::Kernel;
     DesktopServices services;
     std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, **memory, services);
     if (!session) {

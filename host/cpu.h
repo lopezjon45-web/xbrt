@@ -79,7 +79,7 @@ struct CpuCounters {
     uint64_t gate_calls, guest_calls;
     uint64_t traps_fs, traps_mmio, traps_port, traps_rdtsc, traps_privileged, traps_patch_wait;
     uint64_t sites_promoted_eager, sites_promoted_learned, fs_unpromotable;
-    uint32_t guest_threads;
+    uint32_t live_guest_threads;
 };
 
 struct CpuOptions {
@@ -146,8 +146,6 @@ public:
     // The calling host thread's guest identity, created on first use (how the runtime's own threads call guest ISRs
     // and callbacks).
     static GuestThread &current();
-    // The calling host thread's guest identity if it already has one; never creates it. A runtime thread that has
-    // not run guest code (the kernel's timer thread polling a device) has none.
     static GuestThread *current_if_any();
 
     // A new host thread whose first act is call(entry, args, Stdcall).
@@ -164,7 +162,7 @@ public:
     GuestVa kpcr() const;      // fs:[0] of this thread == its ThreadBlock base
     GuestVa ethread() const;   // KPRCB.CurrentThread
     uint32_t index() const;    // 0 for the main thread; the survey and crash.txt name threads by it
-    bool in_call() const;      // inside guest code or a host call it made, so exit() has a frame to unwind to
+    bool has_guest_frame() const;
     void resume();             // NtResumeThread on a suspended spawn
     uint32_t host_thread_id() const;
 

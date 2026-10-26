@@ -48,7 +48,7 @@ std::string_view exit_reason_name(ExitReason r)
 {
     switch (r) {
     case ExitReason::ReturnedToHub: return "returned-to-hub";
-    case ExitReason::MainReturned: return "main-returned";
+    case ExitReason::GuestExited: return "guest-exited";
     case ExitReason::Fatal: return "fatal";
     }
     return "?";
@@ -88,15 +88,18 @@ std::string thread_label(const GuestThread *t)
     return t ? format("t%u", t->index()) : format("host thread %lu", GetCurrentThreadId());
 }
 
-// The kernel call a thread is inside, innermost first, so the end of a run names every call that never returned.
-struct ThreadCalls {
+struct InFlightCall {
     uint32_t index = 0;
     std::atomic<uint16_t> ordinal{0};
     std::atomic<uint64_t> since_ms{0};
 };
-thread_local ThreadCalls *t_calls = nullptr;
+thread_local InFlightCall *t_in_flight = nullptr;
 
-// Calls that end their thread or the run by contract: in flight at the end, they are not calls that never returned.
+[[noreturn]] void park_until_process_ends()
+{
+    for (;;) Sleep(INFINITE);
+}
+
 bool never_returns(uint16_t ordinal)
 {
     constexpr uint16_t kHalReturnToFirmware = 49, kPsTerminateSystemThread = 258;
@@ -189,15 +192,16 @@ std::string counters_line(const CpuCounters &now, const CpuCounters &before)
                   static_cast<unsigned long long>(now.traps_port), static_cast<unsigned long long>(now.traps_rdtsc),
                   static_cast<unsigned long long>(now.traps_privileged), static_cast<unsigned long long>(now.traps_patch_wait),
                   static_cast<unsigned long long>(now.sites_promoted_eager), static_cast<unsigned long long>(now.sites_promoted_learned),
-                  static_cast<unsigned long long>(now.fs_unpromotable), now.guest_threads);
+                  static_cast<unsigned long long>(now.fs_unpromotable), now.live_guest_threads);
 }
 
 }  // namespace
 
-// Everything a session owns that must not move once the kernel and the CPU hold pointers into it. The MissingSink
-// and the fatal sink both land here; the three ways a run ends (hub, main returned, stop) and the watchdog all
-// write `stop` or `hub` under `lock` and signal `stop_event`, which run() waits on beside thread 0's handle.
 struct Session::State final : MissingSink {
+    State() = default;
+    State(const State &) = delete;
+    State &operator=(const State &) = delete;
+
     ShellServices *shell = nullptr;
     GuestMemory *memory = nullptr;
     std::unique_ptr<Source> image;
@@ -212,8 +216,8 @@ struct Session::State final : MissingSink {
     uint32_t thread0_id = 0;
 
     SRWLOCK lock = SRWLOCK_INIT;
-    SRWLOCK calls_lock = SRWLOCK_INIT;
-    std::deque<ThreadCalls> calls;
+    SRWLOCK in_flight_lock = SRWLOCK_INIT;
+    std::deque<InFlightCall> in_flight;
     std::optional<Missing> stop;
     std::optional<TrapReport> trap;
     std::optional<uint32_t> hub;
@@ -235,31 +239,29 @@ struct Session::State final : MissingSink {
         SetEvent(stop_event);
     }
 
-    ThreadCalls &calls_of(const GuestThread &t)
+    InFlightCall &in_flight_of(const GuestThread &t)
     {
-        if (!t_calls) {
-            AcquireSRWLockExclusive(&calls_lock);
-            t_calls = &calls.emplace_back();
-            t_calls->index = t.index();
-            ReleaseSRWLockExclusive(&calls_lock);
+        if (!t_in_flight) {
+            AcquireSRWLockExclusive(&in_flight_lock);
+            t_in_flight = &in_flight.emplace_back();
+            t_in_flight->index = t.index();
+            ReleaseSRWLockExclusive(&in_flight_lock);
         }
-        return *t_calls;
+        return *t_in_flight;
     }
 
     void log_in_flight()
     {
         uint64_t now = GetTickCount64();
-        AcquireSRWLockShared(&calls_lock);
-        for (const ThreadCalls &c : calls)
+        AcquireSRWLockShared(&in_flight_lock);
+        for (const InFlightCall &c : in_flight)
             if (uint16_t o = c.ordinal; o && !never_returns(o))
                 shell->log(format("in flight at the end of the run: kernel call %u %s on t%u, for %llu ms", o,
                                   std::string(kernel_export_name({o})).c_str(), c.index,
                                   static_cast<unsigned long long>(now - c.since_ms)));
-        ReleaseSRWLockShared(&calls_lock);
+        ReleaseSRWLockShared(&in_flight_lock);
     }
 
-    // The kernel's and the devices' reports arrive on the thread that made the call. A stop ends a guest thread
-    // here, so the bridge's frame never resumes the guest.
     void missing(const Missing &reported) noexcept override
     {
         Missing m = reported;
@@ -269,16 +271,14 @@ struct Session::State final : MissingSink {
             shell->log("missing " + missing_line(m));
             return;
         }
-        if (t_calls && t_calls->ordinal) {
-            uint16_t o = t_calls->ordinal.exchange(0);
+        if (t_in_flight && t_in_flight->ordinal) {
+            uint16_t o = t_in_flight->ordinal.exchange(0);
             shell->log(format("kernel call %u %s on %s ended by this stop", o, std::string(kernel_export_name({o})).c_str(),
                               m.thread.c_str()));
         }
         record_stop(m, nullptr);
-        if (t && t->in_call()) t->exit(kStopExitCode);
-        // A runtime thread outside guest code has no guest frame to unwind and must not go on with the value it was
-        // refused; it waits for the process to end.
-        for (;;) Sleep(INFINITE);
+        if (t && t->has_guest_frame()) t->exit(kStopExitCode);
+        park_until_process_ends();
     }
 
     void log(std::string_view line) noexcept override { shell->log(line); }
@@ -296,7 +296,7 @@ struct Session::State final : MissingSink {
     ExitReason exit_reason()
     {
         AcquireSRWLockShared(&lock);
-        ExitReason r = stop ? ExitReason::Fatal : hub ? ExitReason::ReturnedToHub : ExitReason::MainReturned;
+        ExitReason r = stop ? ExitReason::Fatal : hub ? ExitReason::ReturnedToHub : ExitReason::GuestExited;
         ReleaseSRWLockShared(&lock);
         return r;
     }
@@ -360,12 +360,12 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
     }
     if (!id.is_kernel()) return on_host_call(thread, id, frame);
     uint16_t o = id.ordinal().v;
-    ThreadCalls &calls = s.calls_of(thread);
-    uint64_t outer_since = calls.since_ms.exchange(GetTickCount64());
-    uint16_t outer = calls.ordinal.exchange(o);
+    InFlightCall &call = s.in_flight_of(thread);
+    uint64_t outer_since = call.since_ms.exchange(GetTickCount64());
+    uint16_t outer = call.ordinal.exchange(o);
     if (s.trace_kernel) {
         // NtCreateFile (190) and NtOpenFile (202) take POBJECT_ATTRIBUTES as their third argument; its ObjectName at
-        // +4 is an ANSI_STRING {Length, MaximumLength, Buffer}. The name is what a title's first wall usually is.
+        // +4 is an ANSI_STRING {Length, MaximumLength, Buffer}.
         std::string name;
         uint32_t attributes = (o == 190 || o == 202) ? mem32(frame.esp + 12) : 0;
         if (attributes && readable(attributes, 8)) {
@@ -380,8 +380,8 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
     }
     on_host_call(thread, id, frame);
     if (s.trace_kernel) s.shell->log(format("kernel call %u returned eax=%08X on t%u", o, frame.eax, thread.index()));
-    calls.ordinal = outer;
-    calls.since_ms = outer_since;
+    call.ordinal = outer;
+    call.since_ms = outer_since;
 }
 
 // The trap router's fatal path: record and signal; the router unwinds the faulting thread itself.
@@ -403,7 +403,7 @@ Session::~Session()
 {
     // After a Hang the guest threads still run and still reach g_state through host_call; the process is about to
     // exit, so the State outlives the Session rather than dangling under them.
-    if (s_ && s_->cpu && s_->cpu->counters().guest_threads > 0) (void)s_.release();
+    if (s_ && s_->cpu && s_->cpu->counters().live_guest_threads > 0) (void)s_.release();
 }
 
 const XbeImage &Session::xbe() const { return s_->xbe; }
@@ -541,31 +541,31 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
 ExitReason Session::run()
 {
     State &s = *s_;
-    HANDLE waits[2] = {s.stop_event, s.thread0};
     CpuCounters before = s.cpu->counters();
     unsigned seconds = 0, idle = 0;
-    ULONGLONG started = GetTickCount64();
+    bool thread0_ended = false;
     for (;;) {
-        DWORD w = WaitForMultipleObjects(2, waits, FALSE, 1000);
-        if (w == WAIT_OBJECT_0 + 1) {
+        if (WaitForSingleObject(s.stop_event, 1000) != WAIT_TIMEOUT) break;
+        seconds++;
+        if (!thread0_ended && WaitForSingleObject(s.thread0, 0) == WAIT_OBJECT_0) {
+            thread0_ended = true;
             DWORD code = 0;
             GetExitCodeThread(s.thread0, &code);
-            s.shell->log(format("thread t0 ended (exit code 0x%lX) %llu ms into the run, %u guest threads counted running", code,
-                                static_cast<unsigned long long>(GetTickCount64() - started), s.cpu->counters().guest_threads));
+            s.shell->log(format("thread t0 ended (exit code 0x%lX) within %u s, %u guest threads running", code, seconds,
+                                s.cpu->counters().live_guest_threads));
         }
-        if (w != WAIT_TIMEOUT) break;
-        seconds++;
         CpuCounters now = s.cpu->counters();
         std::string line = counters_line(now, before);
         if (s.show_counters) s.shell->counters(line);
         if (seconds % kCountersLogSeconds == 0) s.shell->log(line);
         idle = now.gate_calls == before.gate_calls ? idle + 1 : 0;
         before = now;
+        if (now.live_guest_threads == 0) break;
         if (idle >= kWatchdogSeconds) {
             // The thread states (what each one waits on, where each one spins) come with U3's suspend-and-read.
             s.record_stop({MissingKind::Hang, true,
                            format("no kernel call for %u s (%u guest threads; thread 0 is host thread %u)", kWatchdogSeconds,
-                                  now.guest_threads, s.thread0_id),
+                                  now.live_guest_threads, s.thread0_id),
                            {}, "", s.thread0_id, "the watchdog"},
                           nullptr);
             break;

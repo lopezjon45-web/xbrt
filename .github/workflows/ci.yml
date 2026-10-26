@@ -120,14 +120,9 @@ jobs:
             Pop-Location
           }
           exit 0
-      # seh is a known failure: the trap router reports a guest-handled access violation as a fatal trap
-      # (host/cpu/traps.cpp, the "write fault" row) instead of delivering it to the title's SEH chain, which needs an
-      # Xbox CONTEXT built from the trap and the bridges' raise path (U3). startup is a known failure: the session
-      # ends when the XBE entry's thread returns, which an XDK title's entry does at once, and the kernel's timer
-      # thread asks the absent NV2A for PTIMER. The judge fails the moment either passes.
       - name: Judge the lab runs
         if: steps.labxbe.outcome == 'success'
-        run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh --known-failure startup
+        run: python scripts/check-lab-run.py lab out/lab-run --known-failure seh
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:

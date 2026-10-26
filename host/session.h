@@ -43,8 +43,9 @@ protected:
     ~ShellServices() = default;
 };
 
-// How Session::run ended. ReturnedToHub and MainReturned are result=ok for the hub; Fatal carries a Missing.
-enum class ExitReason : uint8_t { ReturnedToHub, MainReturned, Fatal };
+// How Session::run ended. ReturnedToHub is result=ok for the hub; GuestExited (every guest thread ended without
+// returning to the hub) is an error the shell names; Fatal carries a Missing.
+enum class ExitReason : uint8_t { ReturnedToHub, GuestExited, Fatal };
 
 std::string_view exit_reason_name(ExitReason r);
 
@@ -57,7 +58,7 @@ public:
     // 0 at the XBE entry; run() must follow. The disc stays open for the session's life (D:\ is read in place).
     static std::expected<Session, BootError> boot(const LaunchRequest &request, GuestMemory &memory, ShellServices &shell);
 
-    // Blocks until the guest returns to the hub, the main routine returns, a stop-kind Missing arrives, or the
+    // Blocks until the guest returns to the hub, every guest thread has ended, a stop-kind Missing arrives, or the
     // watchdog sees no gate call for 10 s. Every stop writes <data root>\crash.txt. The sites learned from traps
     // are merged into the plan and written to <data root>\titles\<sha256>\plan.bin on every exit.
     ExitReason run();

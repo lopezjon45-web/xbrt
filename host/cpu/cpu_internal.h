@@ -124,7 +124,7 @@ struct CpuState {
 
     std::atomic<uint64_t> gate_calls{0}, guest_calls{0}, traps_fs{0}, traps_mmio{0}, traps_port{0}, traps_rdtsc{0},
         traps_privileged{0}, traps_patch_wait{0}, sites_promoted_eager{0}, sites_promoted_learned{0}, fs_unpromotable{0};
-    std::atomic<uint32_t> guest_threads{0}, next_index{0};
+    std::atomic<uint32_t> live_guest_threads{0}, next_index{0};
 
     std::mutex threads_lock;
     std::vector<std::unique_ptr<GuestThread>> threads;   // by index; never freed, crash.txt names threads by index

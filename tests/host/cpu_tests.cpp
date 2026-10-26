@@ -500,7 +500,7 @@ struct Tests {
         DWORD wait = WaitForSingleObject(h, 10000);
         DWORD code = 0;
         GetExitCodeThread(h, &code);
-        uint32_t threads_now = cpu.counters().guest_threads;
+        uint32_t threads_now = cpu.counters().live_guest_threads;
         const ThreadBlock *tb = detail::block_of(t);
         bool tls = tb->ethread.Tcb.TlsData != 0 && *memory.host<uint32_t>({tb->ethread.Tcb.TlsData}) == tb->ethread.Tcb.TlsData + 4;
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X", wait, code, exit_depth,
@@ -731,7 +731,7 @@ bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::stri
                 static_cast<unsigned long long>(c.traps_mmio), static_cast<unsigned long long>(c.traps_port), static_cast<unsigned long long>(c.traps_rdtsc),
                 static_cast<unsigned long long>(c.traps_privileged), static_cast<unsigned long long>(c.traps_patch_wait),
                 static_cast<unsigned long long>(c.sites_promoted_eager), static_cast<unsigned long long>(c.sites_promoted_learned),
-                static_cast<unsigned long long>(c.fs_unpromotable), c.guest_threads));
+                static_cast<unsigned long long>(c.fs_unpromotable), c.live_guest_threads));
     return all;
 }
 

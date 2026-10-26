@@ -204,8 +204,6 @@ stop_once
 sleep 3
 get_file "$P_FULL" '\LocalState' run.txt "$OUT/warmup-run.txt" && say "saved the warm-up's run.txt ($(wc -l < "$OUT/warmup-run.txt" | tr -d ' ') lines)"
 del_file "$P_FULL" '\LocalState' run.txt || true
-# crash.txt is written only on a stop, so one left by an earlier run is saved apart and removed: the one fetched after
-# this run is then this run's.
 if get_file "$P_FULL" '\LocalState' crash.txt "$OUT/crash-before.txt"; then
     say "saved an earlier run's crash.txt as crash-before.txt"
     del_file "$P_FULL" '\LocalState' crash.txt || true

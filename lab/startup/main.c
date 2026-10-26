@@ -1,7 +1,6 @@
 #include "../lab.h"
 
-// An XDK title's start: the entry creates the title's main thread through a system routine, as XAPI's does, and
-// returns; that thread arms a timer and opens the hard disk's title-data folder before the title proper runs.
+static const LONGLONG kTimerThreadTicks = -500000;
 
 static KTIMER timer;
 static KDPC dpc;
@@ -14,8 +13,6 @@ static VOID NTAPI helper(PVOID context) { helper_ran = (LONG)(ULONG_PTR)context;
 static VOID NTAPI title_main(PVOID context)
 {
     DbgPrint("lab startup main thread");
-
-    // With no system routine the kernel calls the start routine itself.
     HANDLE thread;
     NTSTATUS status = PsCreateSystemThreadEx(&thread, 0, 0x4000, 0, NULL, helper, (PVOID)7, FALSE, FALSE, NULL);
     if (status != STATUS_SUCCESS) {
@@ -36,9 +33,8 @@ static VOID NTAPI title_main(PVOID context)
     LARGE_INTEGER due;
     due.QuadPart = -36000000000ll;
     KeSetTimer(&timer, due, &dpc);
-    // Long enough for the kernel's timer thread, started by KeSetTimer, to tick many times.
     LARGE_INTEGER pause;
-    pause.QuadPart = -500000;
+    pause.QuadPart = kTimerThreadTicks;
     KeDelayExecutionThread(KernelMode, FALSE, &pause);
 
     ANSI_STRING name;

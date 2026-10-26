@@ -28,7 +28,7 @@ struct Missing {
     GuestVa where;              // the guest return address of the call; 0 when no guest call is in progress
     std::string where_symbol;   // "XAPILIB QueueUserAPC+0x2A", or the address in hex when nothing names it
     uint32_t host_thread;       // the host thread id of the caller
-    std::string thread;         // set by the session on receipt: "t<index>", or "host thread <id>" with no guest identity
+    std::string thread;
 };
 
 // The shell and the desktop host implement it. A stop never returns to the guest in a shell: the red line, crash.txt

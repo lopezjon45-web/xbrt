@@ -7,8 +7,8 @@
 <lab dir> holds <name>/expected.txt per lab (the source tree's lab/, or lab/build.sh's output). <run dir> holds
 <name>.txt per lab: everything `xbrt_desktop --run` wrote to stdout and stderr. A lab passes when the lines of its
 output that carry "lab <name> " (DbgPrint output may arrive behind a prefix) are exactly its expected lines, in
-order. On a failure the judge prints the difference, the boot stage that failed if one did, and the output (its last
-200 lines; the desktop run traces every kernel call).
+order. On a failure the judge prints the difference, the boot stage that failed if one did, and the last 200 lines of
+the output.
 A --known-failure lab is judged and reported the same way but does not fail the run; one that passes does, so the
 flag is removed the moment the defect it names is fixed.
 """

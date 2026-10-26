@@ -114,12 +114,11 @@ DWORD WINAPI guest_thread_main(void *p)
 {
     ThreadBlock *tb = static_cast<ThreadBlock *>(p);
     adopt(tb);
-    g_cpu->guest_threads++;
     std::unique_ptr<SpawnArgs> spawn(tb->host.spawn);
     tb->host.spawn = nullptr;
     GuestThread &t = *tb->host.thread;
     uint64_t r = t.call({spawn->entry}, spawn->args, CallConv::Stdcall);
-    g_cpu->guest_threads--;
+    g_cpu->live_guest_threads--;
     g_cpu->memory->free_stack({{tb->host.stack_base}, {tb->host.stack_limit}});
     return uint32_t(r);
 }
@@ -257,7 +256,7 @@ CpuCounters Cpu::counters() const
 {
     CpuState &s = *g_cpu;
     return {s.gate_calls, s.guest_calls, s.traps_fs, s.traps_mmio, s.traps_port, s.traps_rdtsc, s.traps_privileged,
-            s.traps_patch_wait, s.sites_promoted_eager, s.sites_promoted_learned, s.fs_unpromotable, s.guest_threads};
+            s.traps_patch_wait, s.sites_promoted_eager, s.sites_promoted_learned, s.fs_unpromotable, s.live_guest_threads};
 }
 
 uint64_t Cpu::guest_tsc() const { return guest_tsc_now(); }
@@ -280,6 +279,7 @@ GuestThread &GuestThread::spawn(GuestVa entry, std::span<const uint32_t> args, c
     if (!tb) install_failed("no ThreadBlock or guest stack for a spawned thread", g_cpu->on_fatal);
     tb->host.spawn = new SpawnArgs{entry.v, std::vector<uint32_t>(args.begin(), args.end())};
     tb->host.suspended = options.suspended;
+    g_cpu->live_guest_threads++;
     DWORD id = 0;
     HANDLE h = CreateThread(nullptr, 0, guest_thread_main, tb, CREATE_SUSPENDED, &id);
     if (!h) install_failed("CreateThread failed for a spawned guest thread", g_cpu->on_fatal);
@@ -323,7 +323,7 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
     if (h.exited && h.depth == 0) {
         // exit() or a fatal trap unwound to this base frame: the host thread ends here (the main thread included).
         if (h.host_thread) {
-            g_cpu->guest_threads--;
+            g_cpu->live_guest_threads--;
             g_cpu->memory->free_stack({{h.stack_base}, {h.stack_limit}});
         }
         ExitThread(h.exit_code);
@@ -336,7 +336,7 @@ void GuestThread::exit(uint32_t code) { unwind_thread(block_, code); }
 GuestVa GuestThread::kpcr() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_))}; }
 GuestVa GuestThread::ethread() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_)) + kEthreadOffset}; }
 uint32_t GuestThread::index() const { return block_->host.index; }
-bool GuestThread::in_call() const { return block_->host.depth > 0; }
+bool GuestThread::has_guest_frame() const { return block_->host.depth > 0; }
 uint32_t GuestThread::host_thread_id() const { return block_->host.host_thread_id; }
 
 void GuestThread::resume()

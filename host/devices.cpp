@@ -20,6 +20,8 @@ void register_access(const char *verb, uint32_t va, bool stop)
 
 extern "C" {
 
+int xbox_frontend_nv2a_attached(void) { return 0; }
+
 // No APU: its interrupt line is never up.
 int xbox_ApuIrqPending(void) { return 0; }
 

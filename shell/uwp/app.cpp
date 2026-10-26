@@ -160,10 +160,8 @@ void play(const xbrt::LaunchRequest &request)
     if (!session) return;
     ULONGLONG started = GetTickCount64();
     xbrt::ExitReason why = session->run();
-    if (why == xbrt::ExitReason::MainReturned) {
-        // A console title never returns from main while it plays; a return is the title giving up, so the hub hears
-        // an error, not ok.
-        std::string line = "thread t0 (the XBE entry) returned after " + std::to_string((GetTickCount64() - started) / 1000) + " s";
+    if (why == xbrt::ExitReason::GuestExited) {
+        std::string line = "every guest thread ended after " + std::to_string((GetTickCount64() - started) / 1000) + " s";
         report("Feature", "stop Feature: " + line, LineColour::Red);
     }
     if (const xbrt::Missing *stop = session->stop()) {
