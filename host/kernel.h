@@ -52,6 +52,8 @@ struct KernelSetup {
     std::u16string game_dir;         // D:\ for a dir= link; with a disc volume, where the hard disk's other paths land
     std::u16string scratch_dir;      // the title's cache and system partitions and the partition images
     std::u16string saves_root;       // T:\ and U:\ are <saves_root>\<title id>\TDATA and ...\UDATA
+    std::u16string home;             // the link's home=; empty for LocalState. Writes under it stay in saves\xbrt
+                                     // and cache\xbrt
     uint32_t title_id;
     const XboxDiscVolume *disc;      // D:\ read in place from a disc image; null for a dir= link
     GuestVa code_lo, code_hi;        // the image's code range, for the kernel's diagnostics

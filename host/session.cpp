@@ -540,7 +540,7 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
         s.volume = std::make_unique<DiscVolume>(s.disc, *s.image);
         game_dir = scratch_dir;
     }
-    KernelSetup setup{&memory, &s, s.cpu, game_dir, scratch_dir, saves_root, s.xbe.cert.title_id,
+    KernelSetup setup{&memory, &s, s.cpu, game_dir, scratch_dir, saves_root, request.home, s.xbe.cert.title_id,
                       s.volume ? s.volume->volume() : nullptr, code_lo, code_hi, &s.symbols, &s.xbe};
     if (Parsed<void> installed = kernel_install(setup); !installed) return failed(BootStage::Kernel, installed.error());
     shell.log("saves " + ascii_path(saves_root) + "\\" + title_id + ", scratch " + ascii_path(scratch_dir) +

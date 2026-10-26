@@ -236,6 +236,7 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
 
     std::filesystem::path disc = std::filesystem::current_path() / "kernel-disc";
     std::filesystem::path saves = std::filesystem::current_path() / "kernel-saves";
+    std::filesystem::path home = saves / "home";
     std::filesystem::create_directories(disc);
     std::ofstream(disc / "hello.txt", std::ios::binary) << kFileText;
     const uint32_t file_bytes = uint32_t(std::strlen(kFileText));
@@ -246,7 +247,8 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
     KernelSetup setup{&memory, &sink, &cpu,
                       std::u16string(reinterpret_cast<const char16_t *>(disc.wstring().c_str())),
                       std::u16string(reinterpret_cast<const char16_t *>(saves.wstring().c_str())),
-                      std::u16string(reinterpret_cast<const char16_t *>((saves / "saves").wstring().c_str())),
+                      std::u16string(reinterpret_cast<const char16_t *>((home / "saves" / "xbrt").wstring().c_str())),
+                      std::u16string(reinterpret_cast<const char16_t *>(home.wstring().c_str())),
                       0,
                       nullptr,
                       {},
@@ -353,6 +355,40 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
             failure = std::to_string(sink.seen.size()) + " reports, first '" + (sink.seen.empty() ? "" : sink.seen[0].what) +
                       "' at '" + (sink.seen.empty() ? "" : sink.seen[0].where_symbol) + "'";
         result("unbridged", failure);
+    }
+    {
+        // Under home= the runtime writes only in saves\xbrt and cache\xbrt: a guest path that climbs out of its TDATA
+        // folder is refused and leaves nothing behind.
+        auto create = [&](const char *path) {
+            Call c(memory, stack);
+            uint32_t text = c.put(path, uint32_t(std::strlen(path) + 1));
+            uint32_t name = c.reserve(8);
+            c.at(name) = uint32_t(std::strlen(path)) | (uint32_t(std::strlen(path) + 1) << 16);
+            c.at(name + 4) = text;
+            uint32_t attributes = c.reserve(12);
+            c.at(attributes + 4) = name;
+            c.at(attributes + 8) = 0x40;
+            uint32_t handle_out = c.reserve(4);
+            uint32_t iosb = c.reserve(8);
+            // GENERIC_WRITE | SYNCHRONIZE, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE
+            c.run({190}, {handle_out, 0x40100000, attributes, iosb, 0, 0x80, 0, 5, 0x60});
+            uint32_t status = c.frame.eax;
+            if (status == 0) {
+                Call close(memory, stack);
+                close.run({187}, {c.at(handle_out)});
+            }
+            return status;
+        };
+        uint32_t inside = create("\\Device\\Harddisk0\\Partition1\\TDATA\\00000000\\inside.txt");
+        uint32_t outside = create("\\Device\\Harddisk0\\Partition1\\TDATA\\00000000\\..\\..\\..\\..\\outside.txt");
+        bool inside_written = std::filesystem::exists(home / "saves" / "xbrt" / "00000000" / "TDATA" / "inside.txt");
+        bool outside_written = std::filesystem::exists(home / "outside.txt");
+        std::string failure;
+        if (inside != 0 || !inside_written || outside == 0 || outside_written)
+            failure = "inside " + hex(inside) + (inside_written ? " written" : " not written") + ", outside " + hex(outside) +
+                      (outside_written ? " written to home\\outside.txt" : " not written") +
+                      "; want inside 0x0 written, outside refused and not written";
+        result("home-writes", failure);
     }
     result("usb-pad", usb_pad_enumerates(memory));
     return all;
