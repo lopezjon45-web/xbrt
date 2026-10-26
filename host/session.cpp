@@ -5,6 +5,7 @@
 #include "core/plan.h"
 #include "core/survey.h"
 #include "core/symbols.h"
+#include "host/xemu/machine.h"
 
 #include <windows.h>
 
@@ -595,9 +596,11 @@ ExitReason Session::run()
                                 s.cpu->counters().live_guest_threads));
         }
         CpuCounters now = s.cpu->counters();
-        std::string line = counters_line(now, before);
-        if (s.show_counters) s.shell->counters(line);
-        if (seconds % kCountersLogSeconds == 0) s.shell->log(line);
+        for (const std::string &line : {counters_line(now, before), xemu_counters_line()}) {
+            if (line.empty()) continue;
+            if (s.show_counters) s.shell->counters(line);
+            if (seconds % kCountersLogSeconds == 0) s.shell->log(line);
+        }
         idle = now.gate_calls == before.gate_calls ? idle + 1 : 0;
         before = now;
         if (now.live_guest_threads == 0) break;

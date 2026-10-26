@@ -9,7 +9,7 @@ typedef struct FlatRange {
     uint32_t mr_offset;
 } FlatRange;
 
-#define MAX_BARS 4
+#define MAX_BARS 8
 #define MAX_RANGES 32
 
 typedef struct Bar {
@@ -227,7 +227,9 @@ unsigned xbrt_memory_freeze(const XbrtDeviceSpec *devices, XbrtBar *bars, unsign
         b->device = devices[b->dev->irq_line].device;
         if (b->root->size > UINT32_MAX) xbrt_refuse(XBRT_REFUSE_FEATURE, "%s BAR%d is over 4 GB", b->device, b->index);
         flatten(b, b->root, 0, 0, (uint32_t)b->root->size);
-        bars[i] = (XbrtBar){b->device, (uint8_t)b->index, (uint8_t)b->dev->irq_line, (uint32_t)b->root->size};
+        const FlatRange *r = &b->ranges[0];
+        bool ram_alias = b->count == 1 && r->mr == &xbrt_board_ram && r->mr_offset == 0 && r->end == xbrt_board_ram.size;
+        bars[i] = (XbrtBar){b->device, (uint8_t)b->index, (uint8_t)b->dev->irq_line, ram_alias, (uint32_t)b->root->size};
     }
     g_frozen = true;
     return g_bar_count;

@@ -20,6 +20,7 @@ typedef struct XbrtHost {
     uint32_t ram_bytes;
     uint64_t device_cores;     /* affinity of every thread the xemu side creates */
     unsigned voice_workers;    /* the APU's VP mixing threads; 0 lets upstream pick one per logical core */
+    double vblank_hz;          /* the display refresh the clock thread calls the NV2A's GraphicHwOps hook at */
     /* A device's interrupt line changed level. Called with the BQL held, from any thread: it stores the level and
      * wakes the interrupt thread, and never calls guest code or blocks. */
     void (*irq_level)(unsigned line, int level);
@@ -35,6 +36,7 @@ typedef struct XbrtBar {
     const char *device;
     uint8_t index;
     uint8_t irq_line;
+    uint8_t ram_alias;   /* the BAR is all of board RAM from physical 0 (the NV2A's BAR1), so nothing to dispatch */
     uint32_t size;
 } XbrtBar;
 
@@ -52,6 +54,19 @@ uint32_t xbrt_xemu_read(unsigned bar, uint32_t offset, unsigned size);
 void xbrt_xemu_write(unsigned bar, uint32_t offset, unsigned size, uint32_t value);
 
 int xbrt_xemu_bql_held(void);
+
+/* Totals since xbrt_xemu_run, read without a lock (each is written by one thread). APU frames per second and
+ * utilization are upstream's own once-a-second figures (mcpx_apu_get_debug_info). */
+typedef struct XbrtCounters {
+    uint64_t nv2a_methods;   /* entries in PGRAPH's method log (a run of ARRAY_ELEMENT16 counts its calls) */
+    uint64_t nv2a_draws;     /* SET_BEGIN_END END: begin/end pairs */
+    uint64_t nv2a_flips;     /* FLIP_STALL */
+    uint64_t vblanks;
+    int apu_frames_per_second;
+    float apu_utilization;
+} XbrtCounters;
+
+void xbrt_xemu_counters(XbrtCounters *out);
 
 #ifdef __cplusplus
 }

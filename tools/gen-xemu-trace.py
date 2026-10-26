@@ -5,12 +5,14 @@
 
 For every trace-events file under <external/xemu>, writes <out>/trace/trace-<dir with / as _>.h, the header the
 vendored trace.h beside it includes. Every event becomes an empty static inline function and a TRACE_<NAME>_ENABLED
-of 0.
+of 0, except the COUNTED ones: those call xbrt_trace_<name> (host/xemu/shim/src/counters.c), which keeps xbrt's
+device counters.
 """
 import re
 import sys
 from pathlib import Path
 
+COUNTED = {'nv2a_pgraph_method', 'nv2a_pgraph_method_abbrev', 'nv2a_pgraph_flip_stall'}
 EVENT = re.compile(r'^(?:(?:disable|vcpu|tcg)\s+)*(\w+)\((.*?)\)\s*(?:"|$)')
 
 
@@ -20,12 +22,18 @@ def header(rel, events):
     for name, arglist in events:
         params = arglist.strip() or 'void'
         out.append(f'#define TRACE_{name.upper()}_ENABLED 0')
-        out.append(f'static inline void trace_{name}({params}) {{}}')
+        if name in COUNTED:
+            args = '' if params == 'void' else ', '.join(re.findall(r'(\w+)\s*$', p)[0] for p in params.split(','))
+            out.append(f'void xbrt_trace_{name}({params});')
+            out.append(f'static inline void trace_{name}({params}) {{ xbrt_trace_{name}({args}); }}')
+        else:
+            out.append(f'static inline void trace_{name}({params}) {{}}')
     return '\n'.join(out) + '\n'
 
 
 def main():
     root, dest = Path(sys.argv[1]), Path(sys.argv[2])
+    found = set()
     (dest / 'trace').mkdir(parents=True, exist_ok=True)
     for events_file in sorted(root.rglob('trace-events')):
         rel = events_file.relative_to(root).as_posix()
@@ -38,9 +46,12 @@ def main():
             if not m:
                 sys.exit(f'{rel}: cannot parse trace event line: {line}')
             events.append((m.group(1), m.group(2)))
+            found.add(m.group(1))
         name = 'trace-' + events_file.parent.relative_to(root).as_posix().replace('/', '_') + '.h'
         (dest / 'trace' / name).write_text(header(rel, events))
         print(f'trace: {name} {len(events)} events')
+    if COUNTED - found:
+        sys.exit(f'COUNTED names no trace event: {", ".join(sorted(COUNTED - found))}')
 
 
 if __name__ == '__main__':

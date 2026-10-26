@@ -13,4 +13,7 @@ namespace xbrt {
 // Returns the stage line's part for these devices.
 std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory);
 
+// "nv2a methods=.. draws=.. flips=.. vblanks=..; apu frames/s=.. util=..", or empty before the devices are attached.
+std::string xemu_counters_line();
+
 }  // namespace xbrt

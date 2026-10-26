@@ -5,9 +5,12 @@
 #include "xemu-config.h"
 
 void mcpx_apu_init(PCIBus *bus, int devfn, MemoryRegion *ram);
+void nv2a_init(PCIBus *bus, int devfn, MemoryRegion *ram);
+void nv2a_context_init(void);
 
 static const XbrtDeviceSpec kDevices[] = {
     {"APU", mcpx_apu_init, PCI_DEVFN(5, 0)},
+    {"NV2A", nv2a_init, PCI_DEVFN(0, 0)},
 };
 
 const XbrtHost *g_xbrt_host;
@@ -55,6 +58,7 @@ unsigned xbrt_machine_create(const XbrtHost *host, const XbrtDeviceSpec *devices
     g_config.audio.hrtf = true;
     g_config.audio.volume_limit = 1.0f;
     g_config.audio.vp.num_workers = (int)host->voice_workers;
+    nv2a_context_init();
 
     xbrt_clock_init();
     xbrt_board_ram.kind = MR_RAM;

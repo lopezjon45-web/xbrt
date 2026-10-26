@@ -15,8 +15,10 @@ extern "C" void xbox_KernelInterruptsWake(void);
 namespace xbrt {
 namespace {
 
-constexpr unsigned kMaxBars = 4;
+constexpr unsigned kMaxBars = 8;
 constexpr unsigned kVoiceWorkers = 2;
+constexpr double kVblankHz = 59.94;
+constexpr uint32_t kTiledView = 0xF0000000;
 
 struct BarMmio final : MmioDevice {
     unsigned bar = 0;
@@ -33,6 +35,7 @@ struct Line {
 std::array<BarMmio, kMaxBars> g_bar_mmio;
 std::array<Line, kMaxBars> g_lines;
 XbrtHost g_host;
+bool g_attached;
 
 bool line_up(std::string_view device)
 {
@@ -66,17 +69,28 @@ void on_log(const char *line) { report_log(line); }
 
 std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
 {
-    g_host = {memory.host<uint8_t>({0x80000000}), memory.ram_bytes(), cpu.device_core_mask(), kVoiceWorkers, on_irq_level,
-              on_refuse, on_log};
+    g_host = {memory.host<uint8_t>({0x80000000}), memory.ram_bytes(), cpu.device_core_mask(), kVoiceWorkers, kVblankHz,
+              on_irq_level, on_refuse, on_log};
     XbrtBar bars[kMaxBars];
     unsigned count = xbrt_xemu_create(&g_host, bars, kMaxBars);
     std::string line;
     for (unsigned i = 0; i < count; i++) {
         const XbrtBar &b = bars[i];
+        char text[160];
+        // The NV2A's BAR1 is all of RAM, which the tiled view at 0xF0000000 already is, so it needs no trap.
+        if (b.ram_alias) {
+            if (b.size != memory.ram_bytes()) {
+                snprintf(text, sizeof text, "xemu %s BAR%u aliases 0x%X bytes of RAM, not all 0x%X", b.device, b.index,
+                         b.size, memory.ram_bytes());
+                refuse(text);
+            }
+            snprintf(text, sizeof text, ", %s BAR%u = RAM = the tiled view 0x%08X", b.device, b.index, kTiledView);
+            line += text;
+            continue;
+        }
         const DeviceAperture *aperture = nullptr;
         for (const DeviceAperture &a : kDeviceApertures)
             if (a.name == b.device) aperture = &a;
-        char text[128];
         if (!aperture || b.index != 0 || b.size != aperture->size) {
             snprintf(text, sizeof text, "xemu %s BAR%u of 0x%X bytes fits no device aperture", b.device, b.index, b.size);
             refuse(text);
@@ -90,9 +104,24 @@ std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
     }
     xbox_KernelInterruptsWake();
     xbrt_xemu_run();
-    char cores[48];
-    snprintf(cores, sizeof cores, ", device threads on cores 0x%llX", static_cast<unsigned long long>(g_host.device_cores));
-    return line + cores;
+    g_attached = true;
+    char tail[96];
+    snprintf(tail, sizeof tail, ", renderer Null, vblank %.2f Hz, device threads on cores 0x%llX", kVblankHz,
+             static_cast<unsigned long long>(g_host.device_cores));
+    return line + tail;
+}
+
+std::string xemu_counters_line()
+{
+    if (!g_attached) return {};
+    XbrtCounters c;
+    xbrt_xemu_counters(&c);
+    char text[192];
+    snprintf(text, sizeof text, "nv2a methods=%llu draws=%llu flips=%llu vblanks=%llu; apu frames/s=%d util=%.2f",
+             static_cast<unsigned long long>(c.nv2a_methods), static_cast<unsigned long long>(c.nv2a_draws),
+             static_cast<unsigned long long>(c.nv2a_flips), static_cast<unsigned long long>(c.vblanks),
+             c.apu_frames_per_second, c.apu_utilization);
+    return text;
 }
 
 }  // namespace xbrt

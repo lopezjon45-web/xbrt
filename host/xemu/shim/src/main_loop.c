@@ -138,8 +138,36 @@ void xbrt_clock_init(void)
     timeBeginPeriod(1);
 }
 
+struct QemuConsole {
+    const GraphicHwOps *ops;
+    void *opaque;
+};
+
+static QemuConsole g_console;
+static DisplaySurface g_zero_bpp_surface;
+static QEMUTimer g_vblank;
+static int64_t g_vblank_period_ns;
+
+/* xemu latches the NV2A's vblank from its UI's display refresh (nv2a_vga_gfx_update); here the clock thread is that
+ * refresh. A late tick is dropped rather than made up in a burst. */
+static void vblank(void *unused)
+{
+    (void)unused;
+    g_console.ops->gfx_update(g_console.opaque);
+    xbrt_count_vblank();
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_REALTIME), next = g_vblank.expire_time + g_vblank_period_ns;
+    timer_mod(&g_vblank, next > now ? next : now + g_vblank_period_ns);
+}
+
 void xbrt_clock_start(void)
 {
+    if (g_console.ops) {
+        if (!(g_xbrt_host->vblank_hz > 0))
+            xbrt_refuse(XBRT_REFUSE_FEATURE, "a display device without a vblank rate (XbrtHost.vblank_hz)");
+        g_vblank_period_ns = (int64_t)(NANOSECONDS_PER_SECOND / g_xbrt_host->vblank_hz);
+        timer_init_ns(&g_vblank, QEMU_CLOCK_REALTIME, vblank, NULL);
+        timer_mod(&g_vblank, qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + g_vblank_period_ns);
+    }
     g_clock_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
     HANDLE h = CreateThread(NULL, 0, clock_thread, NULL, CREATE_SUSPENDED, NULL);
     if (!h) xbrt_refuse(XBRT_REFUSE_FEATURE, "CreateThread failed for xbrt.clock (error %lu)", GetLastError());
@@ -149,14 +177,6 @@ void xbrt_clock_start(void)
     ResumeThread(h);
     CloseHandle(h);
 }
-
-struct QemuConsole {
-    const GraphicHwOps *ops;
-    void *opaque;
-};
-
-static QemuConsole g_console;
-static DisplaySurface g_zero_bpp_surface;
 
 QemuConsole *graphic_console_init(DeviceState *dev, uint32_t head, const GraphicHwOps *ops, void *opaque)
 {

@@ -3,10 +3,12 @@
 
 #include "../../host/xemu/shim/src/shim.h"
 #include "hw/xbox/mcpx/apu/apu_regs.h"
+#include "hw/xbox/nv2a/nv2a_regs.h"
 #include "qemu/main-loop.h"
 #include "qemu/timer.h"
 
 void mcpx_apu_init(PCIBus *bus, int devfn, MemoryRegion *ram);
+void nv2a_init(PCIBus *bus, int devfn, MemoryRegion *ram);
 
 static DWORD g_test_thread;
 static jmp_buf g_refused;
@@ -26,21 +28,34 @@ static void test_refuse(XbrtRefusal kind, const char *what)
 
 static void test_log(const char *line) { printf("  log: %s\n", line); }
 
+/* A line's level changes, in order. The NV2A recomputes its line on every vblank, so calls that keep the level are
+ * not recorded; any call without the BQL is. */
 typedef struct IrqCall {
     unsigned line;
     int level;
-    bool bql_held;
 } IrqCall;
 
 static IrqCall g_irq_calls[4096];
-static volatile LONG g_irq_count;
+static volatile LONG g_irq_count, g_irq_without_bql;
+static volatile LONG g_level[8];
 static HANDLE g_irq_wake;
 
 static void test_irq_level(unsigned line, int level)
 {
+    if (!bql_locked()) InterlockedExchange(&g_irq_without_bql, 1);
+    if (InterlockedExchange(&g_level[line], level) == level) return;
     LONG i = InterlockedIncrement(&g_irq_count) - 1;
-    if (i < (LONG)ARRAY_SIZE(g_irq_calls)) g_irq_calls[i] = (IrqCall){line, level, bql_locked()};
+    if (i < (LONG)ARRAY_SIZE(g_irq_calls)) g_irq_calls[i] = (IrqCall){line, level};
     if (level) SetEvent(g_irq_wake);
+}
+
+static bool wait_level(unsigned line, LONG level, DWORD ms)
+{
+    for (ULONGLONG start = GetTickCount64(); g_level[line] != level;) {
+        if (GetTickCount64() - start > ms) return false;
+        Sleep(1);
+    }
+    return true;
 }
 
 static bool refuses(void (*fn)(void *), void *arg)
@@ -136,9 +151,11 @@ static void test_dev_init(PCIBus *bus, int devfn, MemoryRegion *ram)
 static const XbrtDeviceSpec kSpecs[] = {
     {"TEST", test_dev_init, 0},
     {"APU", mcpx_apu_init, PCI_DEVFN(5, 0)},
+    {"NV2A", nv2a_init, PCI_DEVFN(0, 0)},
 };
-enum { BAR_TEST0, BAR_TEST1, BAR_APU, BAR_COUNT };
-enum { LINE_TEST, LINE_APU };
+enum { BAR_TEST0, BAR_TEST1, BAR_APU, BAR_NV2A, BAR_NV2A_RAM, BAR_COUNT };
+enum { LINE_TEST, LINE_APU, LINE_NV2A };
+static XbrtHost g_host;
 
 typedef struct Result {
     bool ok;
@@ -311,15 +328,14 @@ static Result irq_level_with_bql_and_isr_reenters(void)
     xbrt_xemu_write(BAR_APU, NV_PAPU_ISTS, 4, NV_PAPU_ISTS_FETINTSTS | NV_PAPU_ISTS_GINTSTS);
     Sleep(20);
     LONG last = g_irq_count;
-    bool rose = false, dropped_last = false, all_with_bql = true;
+    bool rose = false, dropped_last = false, all_with_bql = !g_irq_without_bql;
     for (LONG i = first; i < last && i < (LONG)ARRAY_SIZE(g_irq_calls); i++) {
         if (g_irq_calls[i].line != LINE_APU) continue;
         rose |= g_irq_calls[i].level == 1;
         dropped_last = g_irq_calls[i].level == 0;
-        all_with_bql &= g_irq_calls[i].bql_held;
     }
     bool ok = wait == WAIT_OBJECT_0 && ists == 0x11 && rose && dropped_last && all_with_bql;
-    RESULT(ok, "wait %lu, ISTS 0x%08X, %ld irq_level calls, rose %d, last level 0 %d, all with the BQL %d", wait,
+    RESULT(ok, "wait %lu, ISTS 0x%08X, %ld level changes, rose %d, last level 0 %d, all with the BQL %d", wait,
            ists, last - first, rose, dropped_last, all_with_bql);
 }
 
@@ -398,6 +414,159 @@ static Result apu_xgscnt_off_then_48k(void)
     RESULT(ok, "off %u then %u; on: %.0f samples per second", off0, off1, rate);
 }
 
+/* NV2A BAR0 blocks (nv2a.c's blocktable) and the RAMIN aperture. */
+enum {
+    NV2A_PMC = 0x000000,
+    NV2A_PFIFO = 0x002000,
+    NV2A_PTIMER = 0x009000,
+    NV2A_PGRAPH = 0x400000,
+    NV2A_PCRTC = 0x600000,
+    NV2A_RAMIN = 0x700000,
+    NV2A_USER = 0x800000,
+};
+
+static uint32_t nv2a_r(uint32_t offset) { return xbrt_xemu_read(BAR_NV2A, offset, 4); }
+static void nv2a_w(uint32_t offset, uint32_t value) { xbrt_xemu_write(BAR_NV2A, offset, 4, value); }
+
+static XbrtBar g_bars[8];
+
+/* Defect: the NV2A not created, its BAR0 not flattened onto its blocks, or its RAM BAR mistaken for registers. */
+static Result nv2a_boot0_and_ram_bar(void)
+{
+    uint32_t boot0 = nv2a_r(NV2A_PMC + NV_PMC_BOOT_0);
+    const XbrtBar *ram = &g_bars[BAR_NV2A_RAM];
+    bool ok = boot0 == 0x02A000A3 && !g_bars[BAR_NV2A].ram_alias && g_bars[BAR_NV2A].size == 0x1000000 &&
+              ram->ram_alias && ram->index == 1 && ram->size == g_host.ram_bytes;
+    RESULT(ok, "boot0 0x%08X, BAR1 ram alias %u index %u size 0x%X", boot0, ram->ram_alias, ram->index, ram->size);
+}
+
+/* RAMIN layout of the hand-built channel, and pfifo.c's RAMHT hash for a 4 KB table on channel 0. */
+enum { RAMHT = 0x10000, DMA_PUSH_BUFFER = 0x20000, DMA_SEMAPHORE = 0x20010, KELVIN = 0x20020 };
+enum { H_KELVIN = 0x11, H_SEMAPHORE = 0x12 };
+enum { PUSH_BUFFER = 0x100000, SEMAPHORE = 0x101000 };
+
+static uint32_t ramht_hash(uint32_t handle)
+{
+    uint32_t hash = 0;
+    for (; handle; handle >>= 11) hash ^= handle & 0x7FF;
+    return hash;
+}
+
+static void dma_object(uint32_t instance, uint32_t physical, uint32_t limit)
+{
+    nv2a_w(NV2A_RAMIN + instance, NV_DMA_IN_MEMORY_CLASS | NV_DMA_TARGET_PCI | (physical & 0xFFF) << 20);
+    nv2a_w(NV2A_RAMIN + instance + 4, limit);
+    nv2a_w(NV2A_RAMIN + instance + 8, physical & NV_DMA_ADDRESS);
+}
+
+static void ramht_entry(uint32_t handle, uint32_t instance)
+{
+    uint32_t at = NV2A_RAMIN + RAMHT + ramht_hash(handle) * 8;
+    nv2a_w(at, handle);
+    nv2a_w(at + 4, instance >> 4 | NV_RAMHT_ENGINE_GRAPHICS | NV_RAMHT_STATUS);
+}
+
+static uint32_t method(uint32_t subchannel, uint32_t m, uint32_t count) { return count << 18 | subchannel << 13 | m; }
+
+/* Defect: a push buffer PFIFO never reads (a lost kick, a wrong RAM base), a context switch whose interrupt never
+ * reaches the line or cannot be acknowledged through MMIO from another thread, or a semaphore release that does not
+ * land in guest RAM. The test thread plays the ISR. */
+static Result nv2a_push_buffer_context_switch_semaphore(void)
+{
+    XbrtCounters before;
+    xbrt_xemu_counters(&before);
+    uint32_t *pb = (uint32_t *)(g_host.ram + PUSH_BUFFER);
+    uint32_t *semaphore = (uint32_t *)(g_host.ram + SEMAPHORE);
+    *semaphore = 0;
+    dma_object(DMA_PUSH_BUFFER, PUSH_BUFFER, 0xFFF);
+    dma_object(DMA_SEMAPHORE, SEMAPHORE, 0xFFF);
+    nv2a_w(NV2A_RAMIN + KELVIN, NV_KELVIN_PRIMITIVE);
+    ramht_entry(H_KELVIN, KELVIN);
+    ramht_entry(H_SEMAPHORE, DMA_SEMAPHORE);
+    unsigned n = 0;
+    pb[n++] = method(0, NV097_SET_OBJECT, 1), pb[n++] = H_KELVIN;
+    pb[n++] = method(0, NV097_SET_CONTEXT_DMA_SEMAPHORE, 1), pb[n++] = H_SEMAPHORE;
+    pb[n++] = method(0, NV097_SET_SEMAPHORE_OFFSET, 1), pb[n++] = 0;
+    pb[n++] = method(0, NV097_BACK_END_WRITE_SEMAPHORE_RELEASE, 1), pb[n++] = 0x00C0FFEE;
+    while (n < 16) pb[n++] = method(0, NV097_NO_OPERATION, 1), pb[n++] = 0;
+
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_RAMHT, (RAMHT >> 12) << 4 | NV_PFIFO_RAMHT_SIZE_4K << 16);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_MODE, 1);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_CACHE1_PUSH1, NV_PFIFO_CACHE1_PUSH1_MODE);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_CACHE1_DMA_INSTANCE, DMA_PUSH_BUFFER >> 4);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_CACHE1_DMA_PUSH, NV_PFIFO_CACHE1_DMA_PUSH_ACCESS);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_CACHE1_PUSH0, NV_PFIFO_CACHE1_PUSH0_ACCESS);
+    nv2a_w(NV2A_PFIFO + NV_PFIFO_CACHE1_PULL0, NV_PFIFO_CACHE1_PULL0_ACCESS);
+    nv2a_w(NV2A_PGRAPH + NV_PGRAPH_INTR_EN, NV_PGRAPH_INTR_EN_CONTEXT_SWITCH);
+    nv2a_w(NV2A_PGRAPH + NV_PGRAPH_FIFO, NV_PGRAPH_FIFO_ACCESS);
+    nv2a_w(NV2A_PMC + NV_PMC_INTR_EN_0, NV_PMC_INTR_EN_0_HARDWARE);
+    nv2a_w(NV2A_USER + NV_USER_DMA_PUT, n * 4);
+
+    bool rose = wait_level(LINE_NV2A, 1, 1000);
+    uint32_t pmc = nv2a_r(NV2A_PMC + NV_PMC_INTR_0), intr = nv2a_r(NV2A_PGRAPH + NV_PGRAPH_INTR);
+    nv2a_w(NV2A_PGRAPH + NV_PGRAPH_CTX_USER, 0);
+    nv2a_w(NV2A_PGRAPH + NV_PGRAPH_CTX_CONTROL, NV_PGRAPH_CTX_CONTROL_CHID);
+    nv2a_w(NV2A_PGRAPH + NV_PGRAPH_INTR, intr);
+    nv2a_w(NV2A_PMC + NV_PMC_INTR_0, pmc);
+    bool dropped = wait_level(LINE_NV2A, 0, 1000);
+    uint32_t get = 0;
+    for (ULONGLONG start = GetTickCount64(); GetTickCount64() - start < 1000; Sleep(1))
+        if ((get = nv2a_r(NV2A_USER + NV_USER_DMA_GET)) == n * 4) break;
+    XbrtCounters after;
+    xbrt_xemu_counters(&after);
+    bool ok = rose && pmc == NV_PMC_INTR_0_PGRAPH && intr == NV_PGRAPH_INTR_CONTEXT_SWITCH && dropped && get == n * 4 &&
+              *semaphore == 0x00C0FFEE && after.nv2a_methods - before.nv2a_methods == n / 2;
+    RESULT(ok, "line rose %d (PMC 0x%08X, PGRAPH 0x%08X), dropped %d, GET 0x%X of 0x%X, semaphore 0x%08X, methods %llu",
+           rose, pmc, intr, dropped, get, n * 4, *semaphore,
+           (unsigned long long)(after.nv2a_methods - before.nv2a_methods));
+}
+
+/* Defect: no vblank (the clock thread never calls the display hook), or one at a rate a title's frame pacing would
+ * notice. */
+static Result nv2a_vblank_rate(void)
+{
+    nv2a_w(NV2A_PCRTC + NV_PCRTC_INTR_EN_0, NV_PCRTC_INTR_EN_0_VBLANK);
+    bool rose = wait_level(LINE_NV2A, 1, 100);
+    uint32_t pmc = nv2a_r(NV2A_PMC + NV_PMC_INTR_0);
+    XbrtCounters c0, c1;
+    xbrt_xemu_counters(&c0);
+    LARGE_INTEGER f, t0, t1;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t0);
+    Sleep(1000);
+    xbrt_xemu_counters(&c1);
+    QueryPerformanceCounter(&t1);
+    nv2a_w(NV2A_PCRTC + NV_PCRTC_INTR_EN_0, 0);
+    nv2a_w(NV2A_PCRTC + NV_PCRTC_INTR_0, NV_PCRTC_INTR_0_VBLANK);
+    bool dropped = wait_level(LINE_NV2A, 0, 100);
+    double rate = (double)(c1.vblanks - c0.vblanks) * (double)f.QuadPart / (double)(t1.QuadPart - t0.QuadPart);
+    bool ok = rose && (pmc & NV_PMC_INTR_0_PCRTC) && dropped && rate > 57 && rate < 63;
+    RESULT(ok, "line rose %d (PMC 0x%08X), %.2f vblanks per second, dropped %d", rose, pmc, rate, dropped);
+}
+
+/* Defect: a PTIMER alarm that never fires (no QEMU_CLOCK_VIRTUAL timer, or the clock thread waiting on a stale
+ * deadline), or one that fires a frame late. */
+static Result nv2a_ptimer_alarm(void)
+{
+    LARGE_INTEGER f, t0, t1;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t0);
+    /* At reset PTIMER counts the 233 MHz core clock in units of 32: 0x00E00000 is about 2 ms. The alarm is armed
+     * before it is enabled: reset leaves it at 0, which is already past. */
+    nv2a_w(NV2A_PTIMER + NV_PTIMER_ALARM_0, nv2a_r(NV2A_PTIMER + NV_PTIMER_TIME_0) + 0x00E00000);
+    nv2a_w(NV2A_PTIMER + NV_PTIMER_INTR_0, NV_PTIMER_INTR_0_ALARM);
+    nv2a_w(NV2A_PTIMER + NV_PTIMER_INTR_EN_0, NV_PTIMER_INTR_EN_0_ALARM);
+    bool rose = wait_level(LINE_NV2A, 1, 200);
+    QueryPerformanceCounter(&t1);
+    uint32_t pmc = nv2a_r(NV2A_PMC + NV_PMC_INTR_0), intr = nv2a_r(NV2A_PTIMER + NV_PTIMER_INTR_0);
+    nv2a_w(NV2A_PTIMER + NV_PTIMER_INTR_EN_0, 0);
+    nv2a_w(NV2A_PTIMER + NV_PTIMER_INTR_0, NV_PTIMER_INTR_0_ALARM);
+    bool dropped = wait_level(LINE_NV2A, 0, 100);
+    double ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)f.QuadPart;
+    bool ok = rose && pmc == NV_PMC_INTR_0_PTIMER && intr == NV_PTIMER_INTR_0_ALARM && dropped && ms > 1 && ms < 20;
+    RESULT(ok, "line rose %d after %.1f ms (PMC 0x%08X, PTIMER 0x%08X), dropped %d", rose, ms, pmc, intr, dropped);
+}
+
 typedef struct Test {
     const char *name;
     Result (*run)(void);
@@ -416,26 +585,31 @@ static const Test kTests[] = {
     {"irq_level_with_bql_and_isr_reenters", irq_level_with_bql_and_isr_reenters},
     {"muldiv64_wide", muldiv64_wide},
     {"apu_xgscnt_off_then_48k", apu_xgscnt_off_then_48k},
+    {"nv2a_boot0_and_ram_bar", nv2a_boot0_and_ram_bar},
+    {"nv2a_push_buffer_context_switch_semaphore", nv2a_push_buffer_context_switch_semaphore},
+    {"nv2a_vblank_rate", nv2a_vblank_rate},
+    {"nv2a_ptimer_alarm", nv2a_ptimer_alarm},
 };
 
 int main(void)
 {
     g_test_thread = GetCurrentThreadId();
     g_irq_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
-    static XbrtHost host;
-    host.ram_bytes = 64u << 20;
-    host.ram = VirtualAlloc(NULL, host.ram_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    host.voice_workers = 2;
-    host.irq_level = test_irq_level;
-    host.refuse = test_refuse;
-    host.log = test_log;
-    XbrtBar bars[8];
-    unsigned count = xbrt_machine_create(&host, kSpecs, ARRAY_SIZE(kSpecs), bars, ARRAY_SIZE(bars));
+    g_host.ram_bytes = 64u << 20;
+    g_host.ram = VirtualAlloc(NULL, g_host.ram_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    g_host.voice_workers = 2;
+    g_host.vblank_hz = 59.94;
+    g_host.irq_level = test_irq_level;
+    g_host.refuse = test_refuse;
+    g_host.log = test_log;
+    unsigned count = xbrt_machine_create(&g_host, kSpecs, ARRAY_SIZE(kSpecs), g_bars, ARRAY_SIZE(g_bars));
     for (unsigned i = 0; i < count; i++)
-        printf("xemu bar %u: %s BAR%u size 0x%X line %u\n", i, bars[i].device, bars[i].index, bars[i].size,
-               bars[i].irq_line);
-    if (count != BAR_COUNT || strcmp(bars[BAR_APU].device, "APU") || bars[BAR_APU].irq_line != LINE_APU) {
-        printf("xemu tests: FAIL the machine has %u BARs, not the test device's two and the APU's\n", count);
+        printf("xemu bar %u: %s BAR%u size 0x%X line %u\n", i, g_bars[i].device, g_bars[i].index, g_bars[i].size,
+               g_bars[i].irq_line);
+    if (count != BAR_COUNT || strcmp(g_bars[BAR_APU].device, "APU") || g_bars[BAR_APU].irq_line != LINE_APU ||
+        strcmp(g_bars[BAR_NV2A].device, "NV2A") || g_bars[BAR_NV2A_RAM].irq_line != LINE_NV2A) {
+        printf("xemu tests: FAIL the machine has %u BARs, not the test device's two, the APU's and the NV2A's two\n",
+               count);
         return 1;
     }
     xbrt_xemu_run();

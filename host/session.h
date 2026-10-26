@@ -31,7 +31,7 @@ struct ShellServices {
     virtual void stage(BootStage s, std::string_view line) = 0;   // green line on the status screen
     virtual void fail(BootStage s, std::string_view line) = 0;    // red line; the screen stays until B
     virtual void log(std::string_view line) = 0;                  // the kernel's and the guest's lines: run.txt only
-    virtual void counters(std::string_view line) = 0;             // once a second while the link asks for fps=1
+    virtual void counters(std::string_view line) = 0;             // once a second per line while the link asks for fps=1
     virtual std::unique_ptr<Source> open_disc(std::u16string_view path, std::string &error) = 0;
     // Every *.iso and *.xiso in `folder`, full paths, sorted.
     virtual std::vector<std::u16string> list_discs(std::u16string_view folder, std::string &error) = 0;

@@ -11,7 +11,8 @@ import sys
 TESTS = [
     "flatten_and_dispatch", "read_masked_to_size", "hole_refuses", "unaligned_refuses", "ram_subregion_is_memory",
     "map_change_after_freeze_refuses", "bql_recursive_refuses", "timers_fire_in_order_with_bql", "assert_is_a_refusal",
-    "irq_level_with_bql_and_isr_reenters", "muldiv64_wide", "apu_xgscnt_off_then_48k",
+    "irq_level_with_bql_and_isr_reenters", "muldiv64_wide", "apu_xgscnt_off_then_48k", "nv2a_boot0_and_ram_bar",
+    "nv2a_push_buffer_context_switch_semaphore", "nv2a_vblank_rate", "nv2a_ptimer_alarm",
 ]
 
 
