@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <optional>
 #include <set>
@@ -729,6 +730,29 @@ BenchResult bench(Device &d, const Objects &a, const Objects &b, Variant v, unsi
     return r;
 }
 
+// Without its GS a pipeline's VS feeds the PS directly; one counted draw each says the layer accepts that linkage
+// before a thousand draws a frame lean on it.
+bool nogs_accepted(Device &dev, std::initializer_list<const Objects *> pair, Tsv &tsv)
+{
+    bool ok = true;
+    for (const Objects *o : pair) {
+        bind_targets(dev, *o);
+        bind_pipeline(dev, *o);
+        dev.ctx->Begin(dev.stats.Get());
+        dev.ctx->Draw(o->m.vertices, 0);
+        dev.ctx->End(dev.stats.Get());
+        D3D11_QUERY_DATA_PIPELINE_STATISTICS stats{};
+        bool answered = wait_query(dev, dev.stats.Get(), stats, 5000);
+        HRESULT removed = dev.dev11->GetDeviceRemovedReason();
+        tsv.row("meta", "bench_nogs_check",
+                "vs " + std::to_string(stats.VSInvocations) + " answered " + std::to_string(answered) + " removed " +
+                    hex(removed));
+        ok = ok && answered && stats.VSInvocations > 0 && SUCCEEDED(removed);
+        dev.ctx->ClearState();
+    }
+    return ok;
+}
+
 std::wstring cache_path(const std::wstring &dir, const Shader &s)
 {
     return dir + L"\\m0-dxbc\\" + std::wstring(s.glsl_sha256.begin(), s.glsl_sha256.end()) + L".bin";
@@ -1013,12 +1037,25 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
                 tsv.row("benchdone", "objects failed: " + fa + " " + fb);
             } else {
                 tsv.row("meta", "bench_pipelines", std::to_string(*a) + "," + std::to_string(*b));
+                // The _nogs rows unbind the pair's geometry shaders: what a draw costs without the GS xemu now puts
+                // on every non-point primitive.
+                Objects oa_nogs = oa, ob_nogs = ob;
+                oa_nogs.gs.Reset();
+                ob_nogs.gs.Reset();
                 static const struct {
                     Variant v;
                     const char *name;
-                } variants[] = {{Variant::Same, "same"}, {Variant::Switch, "switch"}, {Variant::SwitchCb, "switch_cb"}};
-                for (const auto &[v, name] : variants) {
-                    BenchResult r = bench(dev, oa, ob, v, opt.bench_frames);
+                    bool gs;
+                } variants[] = {{Variant::Same, "same", true},          {Variant::Switch, "switch", true},
+                                {Variant::SwitchCb, "switch_cb", true}, {Variant::Same, "same_nogs", false},
+                                {Variant::Switch, "switch_nogs", false}};
+                tsv.row("meta", "bench_gs", oa.gs && ob.gs ? "both" : oa.gs || ob.gs ? "one" : "none");
+                std::optional<bool> nogs_ok;
+                for (const auto &[v, name, gs] : variants) {
+                    if (!gs && !nogs_ok) nogs_ok = nogs_accepted(dev, {&oa_nogs, &ob_nogs}, tsv);
+                    if (!gs && !*nogs_ok) continue;
+                    BenchResult r = gs ? bench(dev, oa, ob, v, opt.bench_frames)
+                                       : bench(dev, oa_nogs, ob_nogs, v, opt.bench_frames);
                     std::vector<double> draw_us;
                     for (double ms : r.frame_ms) draw_us.push_back(ms * 1000.0 / kDraws);
                     double draws = double(r.frame_ms.size()) * kDraws;

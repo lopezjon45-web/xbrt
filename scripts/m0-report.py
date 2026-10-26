@@ -56,8 +56,10 @@ def analyse(rows):
         out.append(f"  {k}: median {pct(v, .5):.2f} ms, p95 {pct(v, .95):.2f} ms, sum {sum(v) / 1000:.1f} s")
     for s in sorted(stage):
         v = [float(r[6]) + float(r[7]) + float(r[8]) for r in ok if r[2] == s]
+        d = [float(r[8]) for r in ok if r[2] == s]
         if v:
-            out.append(f"  {s}: median {pct(v, .5):.1f} ms over {len(v)}")
+            out.append(f"  {s}: median {pct(v, .5):.1f} ms, p95 {pct(v, .95):.1f} ms over {len(v)}; d3dcompile median "
+                       f"{pct(d, .5):.1f} ms, p95 {pct(d, .95):.1f} ms, sum {sum(d) / 1000:.1f} s")
     rewrites = Counter(r[11] for r in ok if len(r) > 11 and r[11].startswith("rewrite"))
     for rw, n in rewrites.most_common():
         out.append(f"  {n} shaders took the D3D {rw}")
@@ -109,7 +111,7 @@ def analyse(rows):
     if refusing_suites:
         out.append("  refusals by test suite: " + ", ".join(f"{k} {n}" for k, n in refusing_suites.most_common(15)))
 
-    for name in ("same", "switch", "switch_cb"):
+    for name in ("same", "switch", "switch_cb", "same_nogs", "switch_nogs"):
         b = benches.get(name)
         if b:
             out.append(f"bench {name}: {b[4]} us/draw median (p95 {b[5]}), {b[6]} us/frame median (p95 {b[7]}), "
@@ -117,6 +119,8 @@ def analyse(rows):
     bench_done = [r for r in rows if r[0] == "benchdone"]
     if bench_done and bench_done[-1][1] != "ok":
         out.append(f"bench not run: {bench_done[-1][1]}")
+    if "bench_gs" in meta:
+        out.append(f"bench pair geometry shaders: {meta['bench_gs']} (the plain rows bind them, _nogs rows do not)")
     out.append("launches: " + str(sum(1 for r in rows if r[0] == "launch")) +
                ", relaunches: " + str(sum(1 for r in rows if r[0] == "relaunch")) +
                ", cache clear: " + " ".join(f"{r[1]}={r[2]}" for r in rows if r[0] == "cache"))
