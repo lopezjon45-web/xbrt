@@ -874,7 +874,7 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
                     "the process ended inside this shader");
             resume.shaders.insert(id);
         } else if (kind == "pipeline") {
-            tsv.row("pipeline", id, "died", "-", "-", 0, 0, 0, 0, 0, 0, "-", "the process ended inside this pipeline",
+            tsv.row("pipeline", id, "died", "-", "-", 0, 0, 0, 0, 0, "-", "the process ended inside this pipeline",
                     c.pipelines[size_t(id)].suite);
             resume.pipelines.insert(id);
         } else if (kind == "bench") {
@@ -944,7 +944,7 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         const std::optional<Compiled> &vs = compiled[size_t(p.vs)], &ps = compiled[size_t(p.ps)];
         const std::optional<Compiled> *gs = p.gs >= 0 ? &compiled[size_t(p.gs)] : nullptr;
         if (!vs || !ps || (gs && !*gs)) {
-            tsv.row("pipeline", j, "shader_failed", "skipped", "-", 0, 0, 0, 0, 0, 0, "-", "a stage's chain failed", p.suite);
+            tsv.row("pipeline", j, "shader_failed", "skipped", "-", 0, 0, 0, 0, 0, "-", "a stage's chain failed", p.suite);
             continue;
         }
         tsv.row("begin", "pipeline", j);
