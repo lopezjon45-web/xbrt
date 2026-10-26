@@ -1,6 +1,3 @@
-// The trap router (traps.md's decision table) and the one-instruction emulator behind rows 2, 3 and 5. The VEH only
-// copies the CONTEXT into the ThreadBlock and redirects to the landing on the host stack (SYNTHESIS.md graft); the
-// landing decides, emulates, and resumes through the far-return stub.
 #include "host/cpu/cpu_internal.h"
 
 #include <Zydis/Zydis.h>
@@ -41,7 +38,6 @@ bool readable(uint64_t addr, size_t n)
     return addr + n <= reinterpret_cast<uint64_t>(info.BaseAddress) + info.RegionSize;
 }
 
-// The single place that maps an x86 register number to a CONTEXT field (traps.md).
 constexpr size_t kGprOffset[8] = {offsetof(CONTEXT, Rax), offsetof(CONTEXT, Rcx), offsetof(CONTEXT, Rdx), offsetof(CONTEXT, Rbx),
                                   offsetof(CONTEXT, Rsp), offsetof(CONTEXT, Rbp), offsetof(CONTEXT, Rsi), offsetof(CONTEXT, Rdi)};
 
@@ -127,7 +123,6 @@ bool rdtsc_site(uint32_t eip)
     return g_cpu->rdtsc_sites.count(eip) != 0;
 }
 
-// Where a memory operand goes: KPCR page 0 for an fs: access, a device for a mapped page, RAM otherwise.
 struct Access {
     Trap &t;
     bool fs;
@@ -228,7 +223,6 @@ uint32_t guest_pop(Trap &t, unsigned size)
     return v;
 }
 
-// One instruction against KPCR page 0 or a device; registers and flags land in the CONTEXT copy.
 void emulate(Trap &t, bool fs)
 {
     Access mem{t, fs};
@@ -331,7 +325,6 @@ void emulate(Trap &t, bool fs)
     }
 }
 
-// The rows that need a port device: in, out, ins, outs with every operand form.
 void emulate_port(Trap &t)
 {
     CONTEXT &c = t.c;
@@ -416,13 +409,12 @@ void promote_from_trap(Trap &t, SiteKind privileged_or_fs)
     if (!promote(site, true)) g_cpu->fs_unpromotable += privileged_or_fs == SiteKind::Privileged ? 0 : 1;
 }
 
-// Rows 0 to 10. Returns the eip to resume at; a fatal row does not return.
 uint32_t route(Trap &t)
 {
     CpuState &s = *g_cpu;
-    if (t.c.SegCs == kLongCs)   // row 0: only a gate can fault in 64-bit mode on a guest thread
+    if (t.c.SegCs == kLongCs)   // only a gate can fault in 64-bit mode on a guest thread
         fatal_trap(t.tb, format("fault 0x%08X at 0x%llX inside the gates", t.code, static_cast<unsigned long long>(t.c.Rip)));
-    if (t.code == STATUS_PRIVILEGED_INSTRUCTION && t.eip == s.patching_site.load()) {   // row 1
+    if (t.code == STATUS_PRIVILEGED_INSTRUCTION && t.eip == s.patching_site.load()) {
         s.traps_patch_wait++;
         SwitchToThread();
         return t.eip;
@@ -440,27 +432,26 @@ uint32_t route(Trap &t)
     if (fetch || !readable(t.eip, 1)) fatal_trap(t.tb, format("fault fetching code at 0x%08X", t.eip));
     ZydisDecoder decoder;
     ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32);
-    // The decode window is the rest of eip's page, then the next page if it is mapped: two VirtualQuery calls at most.
     size_t avail = std::min<size_t>(15, 0x1000 - (t.eip & 0xFFF));
     if (avail < 15 && readable(t.eip + avail, 15 - avail)) avail = 15;
     if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, t.bytes, avail, &t.in, t.ops)))
         fatal_trap(t.tb, format("cannot decode the bytes at 0x%08X", t.eip));
 
     if (t.code == STATUS_ACCESS_VIOLATION) {
-        if (t.addr < kFsWindow && has_fs_operand(t)) {   // row 2
+        if (t.addr < kFsWindow && has_fs_operand(t)) {
             s.traps_fs++;
             emulate(t, true);
             promote_from_trap(t, SiteKind::FsOther);
             trace(t, "fs", t.next());
             return t.next();
         }
-        if (mmio_at(uint32_t(t.addr))) {   // row 3
+        if (mmio_at(uint32_t(t.addr))) {
             s.traps_mmio++;
             emulate(t, false);
             trace(t, "mmio", t.next());
             return t.next();
         }
-        if (t.addr >= kPageTablesBase && t.addr < kPageTablesEnd)   // row 8
+        if (t.addr >= kPageTablesBase && t.addr < kPageTablesEnd)
             fatal_trap(t.tb, format("fault on 0x%08X (page tables) at '%s'", uint32_t(t.addr), disasm(t).c_str()));
         if (t.addr >= kKernelImageBase && t.addr < kKernelImageEnd)
             fatal_trap(t.tb, format("fault on 0x%08X (kernel image) at '%s'", uint32_t(t.addr), disasm(t).c_str()));
@@ -468,7 +459,7 @@ uint32_t route(Trap &t)
         fatal_trap(t.tb, format("%s fault on 0x%08X at '%s'", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str()));
     }
     if (t.code == STATUS_PRIVILEGED_INSTRUCTION) {
-        if (t.bytes[0] == 0xEF && rdtsc_site(t.eip)) {   // row 4
+        if (t.bytes[0] == kRdtscTrap[0] && rdtsc_site(t.eip)) {
             uint64_t tsc = guest_tsc_now();
             gpr(t.c, 0) = uint32_t(tsc);
             gpr(t.c, 2) = uint32_t(tsc >> 32);
@@ -483,7 +474,7 @@ uint32_t route(Trap &t)
         case ZYDIS_MNEMONIC_INSD:
         case ZYDIS_MNEMONIC_OUTSB:
         case ZYDIS_MNEMONIC_OUTSW:
-        case ZYDIS_MNEMONIC_OUTSD:   // row 5
+        case ZYDIS_MNEMONIC_OUTSD:
             s.traps_port++;
             emulate_port(t);
             trace(t, "port", t.next());
@@ -491,12 +482,12 @@ uint32_t route(Trap &t)
         case ZYDIS_MNEMONIC_WBINVD:
         case ZYDIS_MNEMONIC_INVD:
         case ZYDIS_MNEMONIC_CLI:
-        case ZYDIS_MNEMONIC_STI:   // row 6
+        case ZYDIS_MNEMONIC_STI:
             s.traps_privileged++;
             promote_from_trap(t, SiteKind::Privileged);
             trace(t, "privileged", t.next());
             return t.next();
-        case ZYDIS_MNEMONIC_HLT:   // row 7
+        case ZYDIS_MNEMONIC_HLT:
             s.traps_privileged++;
             SwitchToThread();
             return t.next();
@@ -505,7 +496,7 @@ uint32_t route(Trap &t)
         if (is_segment_load(t)) fatal_trap(t.tb, format("selector load '%s'", disasm(t).c_str()));
         fatal_trap(t.tb, format("cannot emulate '%s'", disasm(t).c_str()));
     }
-    if (t.code == STATUS_BREAKPOINT) {   // row 9
+    if (t.code == STATUS_BREAKPOINT) {
         const uint8_t *p = t.bytes;
         uint32_t at = t.eip;
         if (!(p[0] == 0xCD && p[1] == 0x2D) && t.eip >= 2 && readable(t.eip - 2, 2) && p[-2] == 0xCD && p[-1] == 0x2D) at = t.eip - 2;
@@ -521,7 +512,7 @@ uint32_t route(Trap &t)
         }
         fatal_trap(t.tb, format("breakpoint at 0x%08X ('%s')", t.eip, disasm(t).c_str()));
     }
-    fatal_trap(t.tb, format("exception 0x%08X at '%s'", t.code, disasm(t).c_str()));   // row 10
+    fatal_trap(t.tb, format("exception 0x%08X at '%s'", t.code, disasm(t).c_str()));
 }
 
 }  // namespace
@@ -562,7 +553,7 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
     if (!tb || tb->host.in_trap || tb->host.depth == 0) return EXCEPTION_CONTINUE_SEARCH;
     bool guest = c->SegCs == kCompatCs, gate = c->SegCs == kLongCs && in_gate_region(c->Rip);
     if (!guest && !gate) return EXCEPTION_CONTINUE_SEARCH;
-    _mm_setcsr(0x1F80);
+    _mm_setcsr(kAbiMxcsr);
     memcpy(&tb->trap.ctx, c, sizeof(CONTEXT));
     memcpy(&tb->trap.rec, e->ExceptionRecord, sizeof(EXCEPTION_RECORD));
     tb->host.in_trap = 1;
@@ -572,9 +563,9 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
     c->Rsp = sp - 8;
     c->SegCs = kLongCs;
     c->SegSs = kFlatData;
-    c->MxCsr = 0x1F80;
-    c->FltSave.MxCsr = 0x1F80;
-    c->FltSave.ControlWord = 0x027F;
+    c->MxCsr = kAbiMxcsr;
+    c->FltSave.MxCsr = kAbiMxcsr;
+    c->FltSave.ControlWord = kAbiFpcw;
     c->EFlags &= ~kDfFlag;
     return EXCEPTION_CONTINUE_EXECUTION;
 }
@@ -593,7 +584,7 @@ extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
     uint32_t next = route(t);
     c.Rip = next;
     tb->host.in_trap = 0;
-    reinterpret_cast<void (*)(CONTEXT *)>(static_cast<uintptr_t>(g_cpu->gates.resume64))(&c);
+    reinterpret_cast<ResumeFn>(static_cast<uintptr_t>(g_cpu->gates.resume64))(&c);
     for (;;) {}
 }
 

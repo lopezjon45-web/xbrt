@@ -50,7 +50,6 @@ $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })
-# The desktop host carries the CPU core's tests (tests\host), which it runs with --cpu-tests.
 Compile "gen\desktop" @() (@("shell\desktop\main.cpp") + (Get-ChildItem tests\host\*.cpp | ForEach-Object { $_.FullName }))
 Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")

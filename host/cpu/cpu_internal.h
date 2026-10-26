@@ -1,5 +1,3 @@
-// Private to host/cpu (and tests/host, which checks it): the emitted gates, the ThreadBlock, the process-wide CPU
-// state and the calls the four translation units make into each other. Nothing here reaches a public header.
 #pragma once
 
 #include "core/plan.h"
@@ -16,29 +14,29 @@
 
 namespace xbrt::detail {
 
-// ---- emit.cpp: bytes only, no addresses but the ones passed in; decodable on the Mac ----
-
-// A guest site of L >= 6 bytes becomes `FF 1D <far pointer>` and nops (gates.md 4).
 inline constexpr uint8_t kPatchLength = 6;
 inline constexpr uint16_t kCompatCs = 0x23, kLongCs = 0x33, kFlatData = 0x2B;
-inline constexpr uint32_t kFatalExitCode = 0xDEAD;   // a fatal trap ends the host thread with it
+inline constexpr uint32_t kFatalExitCode = 0xDEAD;
+inline constexpr uint8_t kHlt = 0xF4;
+// rdtsc never faults, so a site becomes `out dx, eax` plus a nop: a privileged instruction the router recognises.
+inline constexpr uint8_t kRdtscTrap[2] = {0xEF, 0x90};
+
+using EnterFn = uint64_t (*)(ThreadBlock *tb, const EntryState *state);
+using UnwindFn = void (*)(ThreadBlock *tb, uint64_t code);
 
 std::vector<uint8_t> emit_enter64();
 std::vector<uint8_t> emit_exit32(uint32_t ptr_exit64);
 std::vector<uint8_t> emit_exit64();
 std::vector<uint8_t> emit_full_gate64(uint64_t on_gate);
-std::vector<uint8_t> emit_resume64();                 // rcx = the CONTEXT to resume from
-std::vector<uint8_t> emit_unwind64(uint32_t exit64);  // rcx = ThreadBlock, rdx = the code call() returns
+std::vector<uint8_t> emit_resume64();
+std::vector<uint8_t> emit_unwind64(uint32_t exit64);
 std::vector<uint8_t> emit_id_stub(uint16_t id, uint32_t ptr_full_gate64);
 std::vector<uint8_t> emit_ret_stub();
 std::vector<uint8_t> emit_fault_gate();   // ud2: the second-fault guard's test target
 std::vector<uint8_t> emit_far_pointer(uint32_t offset, uint16_t selector);
 std::vector<uint8_t> emit_patch(uint32_t ptr_variant, uint8_t length);
-// Empty when the form has no micro-gate (gates.md 4 lists the kinds; esp as the register has none).
 std::vector<uint8_t> emit_micro_gate(SiteKind kind, uint8_t reg, uint32_t disp, uint32_t imm);
 bool has_micro_gate(SiteKind kind, uint8_t reg);
-
-// ---- the runtime chunk: one 1 MB RWX allocation laid out as gates.md's table ----
 
 inline constexpr uint32_t kChunkSize = 0x100000;
 inline constexpr uint32_t kVariantsOffset = 0x1000, kFarPtrOffset = 0x10000, kIdStubsOffset = 0x20000;
@@ -46,7 +44,7 @@ inline constexpr uint32_t kIdStubSize = 16;
 
 struct Gates {
     uint32_t enter64, exit32, exit64, full_gate64, resume64, unwind64, ret_stub, fault_gate;
-    uint32_t ptr_exit64, ptr_full_gate64;   // far-pointer entries
+    uint32_t ptr_exit64, ptr_full_gate64;
 };
 
 struct VariantKey {
@@ -107,18 +105,18 @@ struct CpuState {
     HostCallHandler on_host_call = nullptr;
     Cpu::FatalSink on_fatal = nullptr;
     CpuOptions options;
-    uint32_t chunk = 0;   // the 1 MB RWX chunk; "the gate region" of traps.md row 0 is [chunk, chunk + kChunkSize)
+    uint32_t chunk = 0;
     Gates gates{};
     LARGE_INTEGER qpf{};
 
     std::mutex patch_lock;
     std::atomic<uint32_t> patching_site{0};   // one site at a time: the lock serializes the protocol
-    std::map<VariantKey, uint32_t> variants;  // -> far-pointer entry
+    std::map<VariantKey, uint32_t> variant_entries;
     uint32_t variants_cursor = kVariantsOffset, far_ptr_cursor = kFarPtrOffset;
     std::vector<bool> id_stub_made;
     std::vector<PatchSite> learned;
 
-    std::set<uint32_t> promoted;   // every fs or privileged site rewritten, so a late-landing thread reruns it in place
+    std::set<uint32_t> promoted;
     std::mutex routes_lock;
     std::vector<MmioMap> mmio;
     std::vector<PortMap> ports;
@@ -137,28 +135,26 @@ extern thread_local ThreadBlock *t_block;
 
 inline bool in_gate_region(uint64_t rip) { return rip >= g_cpu->chunk && rip < uint64_t(g_cpu->chunk) + kChunkSize; }
 
-// threads.cpp
+using ResumeFn = void (*)(CONTEXT *context);
+using PatchLockHeld = const std::lock_guard<std::mutex> &;
+
 extern "C" void xbrt_on_gate(GateFrame *frame, ThreadBlock *tb) noexcept;
 [[noreturn]] void unwind_thread(ThreadBlock *tb, uint32_t code);
 ThreadBlock *block_of(GuestThread &t);
 HANDLE thread_handle(GuestThread &t);   // for the tests: join a spawned thread and read its exit code
-uint32_t write_far_pointer(uint32_t offset);   // a new entry in the far-pointer table, under the patch lock
+uint32_t write_far_pointer(uint32_t offset, PatchLockHeld);
 uint64_t guest_tsc_now();
 
-// traps.cpp
 LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e);
 extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb);
 [[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what);
 
-// promote.cpp
 struct FsForm {
     SiteKind kind;
     uint8_t reg;
     uint32_t disp, imm;
 };
 FsForm classify_fs(std::span<const uint8_t> bytes);
-// Rewrites the site under the cross-modifying-code protocol (gates.md 6). False when the form has no micro-gate or
-// the chunk is full; the site then keeps trapping.
 bool promote(const PatchSite &site, bool learned);
 
 }  // namespace xbrt::detail

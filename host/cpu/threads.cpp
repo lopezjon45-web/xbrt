@@ -1,5 +1,3 @@
-// Cpu::install, the id stubs, device registration and the counters; GuestThread: the ThreadBlock, the guest stack,
-// call() with its nesting, spawn() and exit().
 #include "host/cpu/cpu_internal.h"
 
 #include <algorithm>
@@ -18,20 +16,18 @@ struct ThreadAccess {
 };
 
 ThreadBlock *block_of(GuestThread &t) { return ThreadAccess::block(t); }
-HANDLE thread_handle(GuestThread &t) { return reinterpret_cast<HANDLE>(block_of(t)->host.host_thread); }
-
-namespace {
-
-constexpr uint32_t kMainStackSize = 0x100000;   // the calling host thread's guest stack (current())
-constexpr uint32_t kCallGap = 0x40;             // a nested call() leaves this much of the guest stack untouched
-
-using Enter = uint64_t (*)(ThreadBlock *, const EntryState *);
-using Unwind = void (*)(ThreadBlock *, uint64_t);
+HANDLE thread_handle(GuestThread &t) { return static_cast<HANDLE>(block_of(t)->host.host_thread); }
 
 struct SpawnArgs {
     uint32_t entry;
     std::vector<uint32_t> args;
 };
+
+namespace {
+
+constexpr uint32_t kMainStackSize = 0x100000;
+constexpr uint32_t kCallGap = 0x40;
+constexpr DWORD_PTR kPreferredGuestCore = DWORD_PTR(1) << 2;
 
 uint8_t *host(uint32_t va) { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(va)); }
 
@@ -58,7 +54,7 @@ void pin_to_guest_core()
     std::call_once(once, [] {
         DWORD_PTR proc = 0, sys = 0;
         if (GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) && proc)
-            mask = (proc & (DWORD_PTR(1) << 2)) ? (DWORD_PTR(1) << 2) : (proc & (~proc + 1));
+            mask = (proc & kPreferredGuestCore) ? kPreferredGuestCore : (proc & (~proc + 1));
     });
     if (mask) SetThreadAffinityMask(GetCurrentThread(), mask);
 }
@@ -85,7 +81,7 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     e.Tcb.StackBase = stack.base.v;
     e.Tcb.StackLimit = stack.limit.v;
     e.Tcb.KernelStack = stack.base.v;
-    e.Tcb.State = 2;   // Running
+    e.Tcb.State = kKthreadRunning;
     e.Tcb.Priority = e.Tcb.BasePriority = uint8_t(priority);
     if (tls_data_size) {
         uint32_t tls = bva.v + kTlsOffset;
@@ -95,8 +91,8 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
         e.Tcb.TlsData = tls;
     }
     HostPart &h = tb->host;
-    h.host_mxcsr = h.guest_mxcsr = 0x1F80;
-    h.host_fpcw = h.guest_fpcw = 0x027F;
+    h.host_mxcsr = h.guest_mxcsr = kAbiMxcsr;
+    h.host_fpcw = h.guest_fpcw = kAbiFpcw;
     h.stack_base = stack.base.v;
     h.stack_limit = stack.limit.v;
     h.index = g_cpu->next_index++;
@@ -119,9 +115,9 @@ DWORD WINAPI guest_thread_main(void *p)
     ThreadBlock *tb = static_cast<ThreadBlock *>(p);
     adopt(tb);
     g_cpu->guest_threads++;
-    std::unique_ptr<SpawnArgs> spawn(static_cast<SpawnArgs *>(tb->host.spawn));
+    std::unique_ptr<SpawnArgs> spawn(tb->host.spawn);
     tb->host.spawn = nullptr;
-    GuestThread &t = *static_cast<GuestThread *>(tb->host.thread);
+    GuestThread &t = *tb->host.thread;
     uint64_t r = t.call({spawn->entry}, spawn->args, CallConv::Stdcall);
     g_cpu->guest_threads--;
     g_cpu->memory->free_stack({{tb->host.stack_base}, {tb->host.stack_limit}});
@@ -138,7 +134,7 @@ uint64_t guest_tsc_now()
     return (t / f) * hz + ((t % f) * hz) / f;
 }
 
-uint32_t write_far_pointer(uint32_t offset)
+uint32_t write_far_pointer(uint32_t offset, PatchLockHeld)
 {
     if (g_cpu->far_ptr_cursor + 8 > kIdStubsOffset) return 0;
     uint32_t at = g_cpu->chunk + g_cpu->far_ptr_cursor;
@@ -156,7 +152,7 @@ extern "C" void xbrt_on_gate(GateFrame *frame, ThreadBlock *tb) noexcept
     // restores the frame's copy for the caller afterwards.
     tb->host.guest_mxcsr = frame->mxcsr;
     tb->host.guest_fpcw = frame->fpcw;
-    g_cpu->on_host_call(*static_cast<GuestThread *>(tb->host.thread), HostCallId::from_raw(uint16_t(frame->eax)), *frame);
+    g_cpu->on_host_call(*tb->host.thread, HostCallId::from_raw(uint16_t(frame->eax)), *frame);
 }
 
 // Jumps into exit64 with the base frame's rsp: the host frames between (the bridges' C frames and the nested
@@ -166,7 +162,7 @@ extern "C" void xbrt_on_gate(GateFrame *frame, ThreadBlock *tb) noexcept
     tb->host.exited = 1;
     tb->host.exit_code = code;
     tb->host.depth = 1;
-    reinterpret_cast<Unwind>(static_cast<uintptr_t>(g_cpu->gates.unwind64))(tb, code);
+    reinterpret_cast<UnwindFn>(static_cast<uintptr_t>(g_cpu->gates.unwind64))(tb, code);
     for (;;) {}
 }
 
@@ -203,8 +199,11 @@ Cpu &Cpu::install(GuestMemory &memory, HostCallHandler on_host_call, FatalSink o
     g.unwind64 = put(emit_unwind64(g.exit64));
     g.ret_stub = put(emit_ret_stub());
     g.fault_gate = put(emit_fault_gate());
-    g.ptr_exit64 = write_far_pointer(g.exit64);
-    g.ptr_full_gate64 = write_far_pointer(g.full_gate64);
+    {
+        std::lock_guard<std::mutex> hold(s->patch_lock);
+        g.ptr_exit64 = write_far_pointer(g.exit64, hold);
+        g.ptr_full_gate64 = write_far_pointer(g.full_gate64, hold);
+    }
     g.exit32 = put(emit_exit32(g.ptr_exit64));
     if (cursor > chunk.v + kVariantsOffset) install_failed("the fixed gates overflow their page", on_fatal);
     FlushInstructionCache(GetCurrentProcess(), host(chunk.v), kChunkSize);
@@ -270,7 +269,7 @@ GuestThread &GuestThread::current()
         if (!tb) install_failed("no ThreadBlock or guest stack for the calling thread", g_cpu->on_fatal);
         adopt(tb);
     }
-    return *static_cast<GuestThread *>(t_block->host.thread);
+    return *t_block->host.thread;
 }
 
 GuestThread &GuestThread::spawn(GuestVa entry, std::span<const uint32_t> args, const SpawnOptions &options)
@@ -282,11 +281,11 @@ GuestThread &GuestThread::spawn(GuestVa entry, std::span<const uint32_t> args, c
     DWORD id = 0;
     HANDLE h = CreateThread(nullptr, 0, guest_thread_main, tb, CREATE_SUSPENDED, &id);
     if (!h) install_failed("CreateThread failed for a spawned guest thread", g_cpu->on_fatal);
-    tb->host.host_thread = reinterpret_cast<uint64_t>(h);
+    tb->host.host_thread = h;
     tb->host.host_thread_id = id;
     tb->ethread.UniqueThread = id;
     if (!options.suspended) ResumeThread(h);
-    return *static_cast<GuestThread *>(tb->host.thread);
+    return *tb->host.thread;
 }
 
 uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv conv)
@@ -317,7 +316,7 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
     EntryState st{esp, va.v, ecx, edx};
     h.depth++;
     g_cpu->guest_calls++;
-    uint64_t r = reinterpret_cast<Enter>(static_cast<uintptr_t>(g_cpu->gates.enter64))(tb, &st);
+    uint64_t r = reinterpret_cast<EnterFn>(static_cast<uintptr_t>(g_cpu->gates.enter64))(tb, &st);
     h.depth--;
     if (h.exited && h.depth == 0) {
         // exit() or a fatal trap unwound to this base frame: the host thread ends here (the main thread included).
@@ -341,7 +340,7 @@ void GuestThread::resume()
 {
     if (block_->host.suspended && block_->host.host_thread) {
         block_->host.suspended = 0;
-        ResumeThread(reinterpret_cast<HANDLE>(block_->host.host_thread));
+        ResumeThread(static_cast<HANDLE>(block_->host.host_thread));
     }
 }
 

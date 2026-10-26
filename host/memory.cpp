@@ -214,7 +214,6 @@ bool valid_protect(uint32_t p)
     case xbox_page::ExecuteReadWrite: break;
     default: return false;
     }
-    // Guard, NoCache and WriteCombine make no sense on a no-access page, and NoCache and WriteCombine exclude each other.
     if (access == xbox_page::NoAccess && (p & kProtectFlags)) return false;
     return (p & (xbox_page::NoCache | xbox_page::WriteCombine)) != (xbox_page::NoCache | xbox_page::WriteCombine);
 }
@@ -235,7 +234,6 @@ bool GuestMemory::user_range(uint32_t base, uint32_t size) const
     return base >= kUserBase && base < ram_ && size <= ram_ - base;
 }
 
-// A free run of `pages` user pages at a 64 KB boundary, as the Xbox places reservations; 0 when there is none.
 uint32_t GuestMemory::find_free_user(uint32_t pages, bool top_down) const
 {
     const uint32_t step = kReservationGranularity / kPage;
@@ -258,7 +256,6 @@ uint32_t GuestMemory::find_free_user(uint32_t pages, bool top_down) const
     return 0;
 }
 
-// The reservation holding [base, base+size); end() when base is free. *overflow says the range runs past it.
 std::map<uint32_t, GuestMemory::Vad>::const_iterator GuestMemory::vad_containing(uint32_t base, uint32_t size,
                                                                                   bool *overflow) const
 {
@@ -370,7 +367,6 @@ uint32_t GuestMemory::free_virtual(GuestVa *base_io, uint32_t *size_io, uint32_t
     }
     if (type == Release) {
         for (uint32_t va = first; va < first + bytes; va += kPage) decommit_user(va, Owner::Free);
-        // The remainder of a partly released reservation stays reserved on both sides of the hole.
         vads_.erase(vad_base);
         if (first > vad_base) vads_[vad_base] = {first - vad_base, vad_protect};
         if (first + bytes < vad_end) vads_[first + bytes] = {vad_end - (first + bytes), vad_protect};

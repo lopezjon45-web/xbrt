@@ -23,7 +23,6 @@ namespace xbrt {
 
 enum class RamSize : uint32_t { Retail64 = 64u << 20, Devkit128 = 128u << 20 };
 
-// The Xbox kernel's own values, as NtAllocateVirtualMemory and friends receive them from the title.
 namespace xbox_mem {
 constexpr uint32_t Commit = 0x1000, Reserve = 0x2000, Decommit = 0x4000, Release = 0x8000, Free = 0x10000,
                    Private = 0x20000, Reset = 0x80000, TopDown = 0x100000, NoZero = 0x800000;
@@ -104,8 +103,6 @@ public:
 private:
     GuestMemory() = default;
 
-    // What owns a 4 KB physical page. Reserved: inside a user reservation, not committed. The bitmap is the single
-    // owner of every physical page across the three views.
     enum class Owner : uint8_t { Free, Reserved, User, Image, Contiguous };
     struct Vad {
         uint32_t size, protect;
@@ -128,12 +125,12 @@ private:
     uint32_t runtime_cursor_ = 0;
     std::vector<uint32_t> thread_blocks_free_;
     mutable std::mutex lock_;
-    std::vector<Owner> pfn_;              // by physical page
-    std::vector<uint16_t> user_protect_;   // by user VA page: the Xbox protect of a committed page, 0 otherwise
-    std::map<uint32_t, Vad> vads_;        // user reservations by base (64 KB aligned)
-    std::map<uint32_t, Block> contiguous_;   // by VA (0x80000000 + physical)
-    std::map<uint32_t, Block> system_;       // stacks and allocate_system, by VA
-    std::multimap<uint32_t, uint32_t> system_free_;   // size -> VA of a decommitted block, reused exact-size
+    std::vector<Owner> pfn_;
+    std::vector<uint16_t> user_protect_;   // 0 for a page that is not committed
+    std::map<uint32_t, Vad> vads_;
+    std::map<uint32_t, Block> contiguous_;
+    std::map<uint32_t, Block> system_;
+    std::multimap<uint32_t, uint32_t> system_free_;   // size -> VA
     uint32_t system_cursor_ = 0;
     uint32_t stack_pages_ = 0, system_pages_ = 0;
 };

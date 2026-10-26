@@ -1,5 +1,3 @@
-// Promotion: a trapping site becomes a far call into a micro-gate (fs forms), `EF 90` (rdtsc) or nops (privileged),
-// under the cross-modifying-code protocol of gates.md 6. Cpu::apply_sites and apply_overrides use the same writer.
 #include "host/cpu/cpu_internal.h"
 
 #include <cstring>
@@ -19,12 +17,11 @@ uint32_t le32(const uint8_t *p)
     return v;
 }
 
-// The cached micro-gate for a form, as a far-pointer entry; 0 when the chunk is full. Caller holds the patch lock.
-uint32_t variant_for(const VariantKey &key)
+uint32_t variant_for(const VariantKey &key, PatchLockHeld held)
 {
     CpuState &s = *g_cpu;
-    auto it = s.variants.find(key);
-    if (it != s.variants.end()) return it->second;
+    auto it = s.variant_entries.find(key);
+    if (it != s.variant_entries.end()) return it->second;
     std::vector<uint8_t> body = emit_micro_gate(key.kind, key.reg, key.disp, key.imm);
     if (body.empty()) return 0;
     uint32_t at = (s.chunk + s.variants_cursor + 15) & ~15u;
@@ -32,8 +29,8 @@ uint32_t variant_for(const VariantKey &key)
     memcpy(host(at), body.data(), body.size());
     FlushInstructionCache(GetCurrentProcess(), host(at), body.size());
     s.variants_cursor = at + uint32_t(body.size()) - s.chunk;
-    uint32_t entry = write_far_pointer(at);
-    if (entry) s.variants[key] = entry;
+    uint32_t entry = write_far_pointer(at, held);
+    if (entry) s.variant_entries[key] = entry;
     return entry;
 }
 
@@ -47,7 +44,7 @@ void write_site(uint32_t at, const std::vector<uint8_t> &bytes)
     if (VirtualQuery(p, &info, sizeof info) && !(info.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)))
         VirtualProtectFromApp(p, bytes.size(), PAGE_EXECUTE_READWRITE, &old);
     s.patching_site = at;
-    p[0] = 0xF4;
+    p[0] = kHlt;
     FlushProcessWriteBuffers();
     memcpy(p + 1, bytes.data() + 1, bytes.size() - 1);
     FlushProcessWriteBuffers();
@@ -93,13 +90,13 @@ bool promote(const PatchSite &site, bool learned)
     switch (site.kind) {
     case SiteKind::Rdtsc:
         if (site.length != 2) return false;
-        bytes = {0xEF, 0x90};
+        bytes = {kRdtscTrap[0], kRdtscTrap[1]};
         break;
     case SiteKind::Privileged: bytes.assign(site.length, 0x90); break;
     case SiteKind::FsOther: return false;
     default: {
         if (site.length < kPatchLength || !has_micro_gate(site.kind, site.reg)) return false;
-        uint32_t entry = variant_for({site.kind, site.reg, site.disp, site.imm});
+        uint32_t entry = variant_for({site.kind, site.reg, site.disp, site.imm}, hold);
         if (!entry) return false;
         bytes = emit_patch(entry, site.length);
         break;

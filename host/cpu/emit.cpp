@@ -1,5 +1,3 @@
-// The gate emitter: gates.md's sequences as bytes. Every sequence is decoded by Zydis in tests/host/emit_test.cpp
-// and run on the CI desktop host, so an encoding slip fails CI, not the console.
 #include "host/cpu/cpu_internal.h"
 
 #include <initializer_list>
@@ -9,9 +7,9 @@ namespace xbrt::detail {
 namespace {
 
 enum Reg : unsigned { rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15 };
-constexpr int32_t kShadow = 0x20;   // full_gate64's frame: the x64 shadow space, then the GateFrame
+constexpr int32_t kShadow = 0x20;
+constexpr int32_t kGateFrameSize = 0x40;
 
-// A small x64 encoder: enough shapes for the gates, each one verified by the decode test.
 struct X64 {
     std::vector<uint8_t> b;
 
@@ -103,7 +101,6 @@ struct X64 {
     void cld() { byte(0xFC); }
     void ud2() { bytes({0x0F, 0x0B}); }
 
-    // rsp = the zero-extended guest esp in `esp_reg`, then {eip, 0x23} below it, then a far return into compat mode.
     void far_return_to_guest(unsigned esp_reg, unsigned eip_reg)
     {
         mov_rr32(rsp, esp_reg);
@@ -114,8 +111,13 @@ struct X64 {
     }
 };
 
-const unsigned kGuestRegs[] = {rax, rcx, rdx, rbx, rbp, rsi, rdi};   // the GateFrame order, esp apart
-const int32_t kFrameOff[] = {0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18};
+struct FrameReg {
+    unsigned reg;
+    int32_t off;
+};
+const FrameReg kFrameRegs[] = {{rax, offsetof(GateFrame, eax)}, {rcx, offsetof(GateFrame, ecx)}, {rdx, offsetof(GateFrame, edx)},
+                               {rbx, offsetof(GateFrame, ebx)}, {rbp, offsetof(GateFrame, ebp)}, {rsi, offsetof(GateFrame, esi)},
+                               {rdi, offsetof(GateFrame, edi)}};
 
 }  // namespace
 
@@ -183,8 +185,8 @@ std::vector<uint8_t> emit_full_gate64(uint64_t on_gate)
     X64 a;
     a.mov_rr32(r11, rsp);
     a.load64(rsp, r15, kHostRsp);
-    a.lea64(rsp, rsp, -0x60);
-    for (int i = 0; i < 7; i++) a.store32(rsp, kShadow + kFrameOff[i], kGuestRegs[i]);
+    a.lea64(rsp, rsp, -(kShadow + kGateFrameSize));
+    for (const FrameReg &r : kFrameRegs) a.store32(rsp, kShadow + r.off, r.reg);
     a.store32(rsp, kShadow + offsetof(GateFrame, esp), r11);
     a.load32(r10, r11, 0);
     a.store32(rsp, kShadow + offsetof(GateFrame, eip), r10);
@@ -199,7 +201,7 @@ std::vector<uint8_t> emit_full_gate64(uint64_t on_gate)
     a.call(rax);
     a.ldmxcsr(rsp, kShadow + offsetof(GateFrame, mxcsr));
     a.fldcw(rsp, kShadow + offsetof(GateFrame, fpcw));
-    for (int i = 0; i < 7; i++) a.load32(kGuestRegs[i], rsp, kShadow + kFrameOff[i]);
+    for (const FrameReg &r : kFrameRegs) a.load32(r.reg, rsp, kShadow + r.off);
     a.load32(r10, rsp, kShadow + offsetof(GateFrame, eip));
     a.load32(r11, rsp, kShadow + offsetof(GateFrame, esp));
     a.far_return_to_guest(r11, r10);
@@ -300,7 +302,7 @@ bool has_micro_gate(SiteKind kind, uint8_t reg)
     return false;
 }
 
-// On entry: [rsp] = eip, [rsp+4] = 0x23 from the far call; the guest's esp is rsp+8. Only FsCmp changes EFLAGS.
+// On entry: [rsp] = eip, [rsp+4] = 0x23 from the far call; the guest's esp is rsp+8.
 std::vector<uint8_t> emit_micro_gate(SiteKind kind, uint8_t reg, uint32_t disp, uint32_t imm)
 {
     if (!has_micro_gate(kind, reg)) return {};

@@ -118,7 +118,6 @@ struct Tests {
     }
     detail::XboxKpcr &kpcr() { return *memory.host<detail::XboxKpcr>(GuestThread::current().kpcr()); }
 
-    // Every gate's bytes decode to gates.md's instruction list (mnemonics; far transfers checked by branch type).
     Result emit()
     {
         struct Case {
@@ -174,8 +173,6 @@ struct Tests {
         return {true, format("%zu gates", std::size(cases))};
     }
 
-    // A guest `call` into an id stub reaches the handler through full_gate64, which returns edx:eax and pops the
-    // stdcall arguments.
     Result gate()
     {
         g_handlers[100] = [](GuestThread &, GateFrame &f) {
@@ -205,7 +202,7 @@ struct Tests {
     struct FsCase {
         const char *name;
         SiteKind kind;
-        std::vector<uint8_t> site;   // the fs instruction alone
+        std::vector<uint8_t> site;
         bool promotable;
     };
 
@@ -394,7 +391,6 @@ struct Tests {
         return {r1 == 0x600D && r2 == 0x600D && traps1 == 4 && traps2 == 0 && nops, detail};
     }
 
-    // An rdtsc site from the plan becomes `EF 90`; the router scales it to guest_tsc_hz.
     Result rdtsc()
     {
         constexpr uint32_t kLoops = 20000;
@@ -433,7 +429,6 @@ struct Tests {
         return {traps == kLoops && error > -0.01 && error < 0.01, detail};
     }
 
-    // A host call whose handler calls guest code whose host call calls guest code: three levels, values threaded.
     Result nested()
     {
         P c;
@@ -477,8 +472,6 @@ struct Tests {
         return {r == 2124 && calls == 3 && gates == 2 && max_depth == 2 && depth_after == 0, detail};
     }
 
-    // A spawned thread whose entry calls the host, whose handler calls guest code, whose host call exits: the thread
-    // ends with the code from depth 2.
     Result spawn_exit()
     {
         uint32_t stub104 = cpu.gate_for(HostCallId::from_raw(104)).v;
@@ -517,7 +510,6 @@ struct Tests {
                 detail};
     }
 
-    // The second-fault guard: a fault inside the gates (cs 0x33) is fatal with a report, never resumed or looped.
     Result fault_gate()
     {
         uint32_t ptr = code.put(detail::emit_far_pointer(detail::g_cpu->gates.fault_gate, detail::kLongCs));
@@ -539,7 +531,6 @@ struct Tests {
                 detail};
     }
 
-    // Register, flag and SSE state survive a trap round trip through the far-return resume.
     Result trap_state()
     {
         P p;
@@ -547,7 +538,7 @@ struct Tests {
         p.raw({0x66, 0x0F, 0x6E, 0xF8});   // movd xmm7, eax
         p.raw({0xBB}).u32(0x11223344);     // mov ebx, imm
         p.raw({0xF9});                     // stc
-        p.raw({0xF4});                     // hlt: row 7
+        p.raw({0xF4});                     // hlt
         p.raw({0xB8, 0, 0, 0, 0});         // mov eax, 0
         p.raw({0x83, 0xD0, 0x00});         // adc eax, 0: CF survived?
         p.raw({0x66, 0x0F, 0x7E, 0xFA});   // movd edx, xmm7
@@ -563,7 +554,6 @@ struct Tests {
         return {r == ((uint64_t(0x3F800000) << 32) | 0x101) && traps == 1, detail};
     }
 
-    // The Xbox memory verbs against a table of expected results.
     Result memory_verbs()
     {
         using namespace xbox_mem;
