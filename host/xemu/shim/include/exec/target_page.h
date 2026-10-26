@@ -1,0 +1,8 @@
+#ifndef EXEC_TARGET_PAGE_H
+#define EXEC_TARGET_PAGE_H
+
+#define TARGET_PAGE_BITS 12
+#define TARGET_PAGE_SIZE (1u << TARGET_PAGE_BITS)
+#define TARGET_PAGE_MASK (~(TARGET_PAGE_SIZE - 1))
+
+#endif

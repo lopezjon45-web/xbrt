@@ -1,0 +1,54 @@
+#ifndef MIGRATION_VMSTATE_H
+#define MIGRATION_VMSTATE_H
+
+#include "qemu/osdep.h"
+
+typedef struct VMStateField {
+    const char *name;
+} VMStateField;
+
+struct VMStateDescription {
+    const char *name;
+    int version_id;
+    int minimum_version_id;
+    const VMStateField *fields;
+    const VMStateDescription *const *subsections;
+    bool (*needed)(void *opaque);
+    int (*pre_load)(void *opaque);
+    int (*post_load)(void *opaque, int version_id);
+    int (*pre_save)(void *opaque);
+    int (*post_save)(void *opaque);
+};
+
+#define XBRT_VMSTATE_FIELD(f, ...) {.name = #f}
+#define VMSTATE_END_OF_LIST() {0}
+#define VMSTATE_UNUSED(size) {.name = "unused"}
+#define VMSTATE_BOOL XBRT_VMSTATE_FIELD
+#define VMSTATE_BOOL_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_BUFFER XBRT_VMSTATE_FIELD
+#define VMSTATE_BUFFER_UNSAFE XBRT_VMSTATE_FIELD
+#define VMSTATE_PARTIAL_BUFFER XBRT_VMSTATE_FIELD
+#define VMSTATE_INT16_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_INT32 XBRT_VMSTATE_FIELD
+#define VMSTATE_INT32_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_PCI_DEVICE XBRT_VMSTATE_FIELD
+#define VMSTATE_STRUCT XBRT_VMSTATE_FIELD
+#define VMSTATE_STRUCT_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_STRUCT_POINTER XBRT_VMSTATE_FIELD
+#define VMSTATE_TIMER_V XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT8 XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT8_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT8_EQUAL XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT16 XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT16_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32 XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32_V XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32_2DARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32_SUB_ARRAY XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT32_SUB_ARRAY_V XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT64 XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT64_V XBRT_VMSTATE_FIELD
+#define VMSTATE_UINT64_ARRAY XBRT_VMSTATE_FIELD
+
+#endif
