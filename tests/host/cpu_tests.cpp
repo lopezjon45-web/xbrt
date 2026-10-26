@@ -487,7 +487,7 @@ struct Tests {
         P e;
         e.push_imm8(5).mov_ecx_imm(stub103).call_ecx().mov_eax_imm(0xBAD).ret();
         uint32_t payload_e = code.put(e.b);
-        static uint32_t exit_depth, spawned_index;
+        static uint32_t exit_depth, spawned_index, monitor, notify;
         static bool tls;
         g_handlers[103] = [payload_f](GuestThread &t, GateFrame &f) {
             t.call({payload_f}, std::vector<uint32_t>{}, CallConv::Stdcall);
@@ -501,6 +501,9 @@ struct Tests {
                   tb->host.stack_top <= data;
             exit_depth = tb->host.depth;
             spawned_index = t.index();
+            // Read before exit: the ThreadBlock goes back to GuestMemory when the thread ends.
+            monitor = tb->kpcr.PrcbData.DebugMonitorData;
+            notify = monitor ? *memory.host<uint32_t>({monitor + detail::kDebugMonitorNotify}) : 0;
             t.exit(0x77);
         };
         snap();
@@ -513,9 +516,6 @@ struct Tests {
         DWORD code = 0;
         GetExitCodeThread(h, &code);
         uint32_t threads_now = cpu.counters().live_guest_threads;
-        const ThreadBlock *tb = detail::block_of(t);
-        uint32_t monitor = tb->kpcr.PrcbData.DebugMonitorData;
-        uint32_t notify = monitor ? *memory.host<uint32_t>({monitor + detail::kDebugMonitorNotify}) : 0;
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X notify=0x%08X fatal='%s' at 0x%08X",
                                     wait, code, exit_depth, spawned_index, threads_now, int(tls), monitor, notify,
                                     g_fatals ? g_fatal.what.c_str() : "", g_fatals ? g_fatal.where.v : 0);

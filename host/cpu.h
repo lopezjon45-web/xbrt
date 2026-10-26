@@ -182,7 +182,11 @@ public:
 private:
     friend struct detail::ThreadAccess;
     explicit GuestThread(detail::ThreadBlock *block) : block_(block) {}
+    // Null once the thread has ended: its ThreadBlock went back to GuestMemory for the next thread. What names the
+    // thread is kept here then, for crash.txt and for a host thread joining it.
     detail::ThreadBlock *block_;
+    uint32_t ended_index_ = 0, ended_host_thread_id_ = 0;
+    void *ended_host_thread_ = nullptr;
 };
 
 }  // namespace xbrt
