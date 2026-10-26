@@ -50,6 +50,8 @@ struct Failure {
 };
 std::mutex g_failure_lock;
 std::optional<Failure> g_first_failure;
+// Set by the boot thread when the guest itself ended the session (result=ok); the pad loop then leaves for the hub.
+std::atomic<bool> g_guest_left{false};
 
 std::string utf8(std::u16string_view s)
 {
@@ -140,8 +142,33 @@ struct Services final : xbrt::ShellServices {
     {
         return xbrt::list_disc_files(folder, error);
     }
+    void log(std::string_view line) override { xbrt::run_log::run(line); }
+    void counters(std::string_view line) override { g_screen.replace("counters ", line, LineColour::Grey); }
     std::u16string data_root() override { return utf16(g_local_state); }
 };
+
+// The game link: the session boots through Start and runs to the guest's exit or its first wall. A stop stays on
+// the screen in red until B; the hub's link carries the Missing's kind and text.
+void play(const xbrt::LaunchRequest &request)
+{
+    if (!g_memory) {
+        report("start", "start FAIL not run: the reservation failed", LineColour::Red);
+        return;
+    }
+    Services services;
+    std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, *g_memory, services);
+    if (!session) return;
+    xbrt::ExitReason why = session->run();
+    if (const xbrt::Missing *stop = session->stop()) {
+        std::string line = xbrt::missing_line(*stop);
+        g_screen.add(line, LineColour::Red);
+        xbrt::run_log::run("stop " + line + " (crash.txt)");
+        std::lock_guard<std::mutex> g(g_failure_lock);
+        if (!g_first_failure) g_first_failure = Failure{std::string(xbrt::missing_kind_name(stop->kind)), stop->what};
+    }
+    xbrt::run_log::run("exit " + std::string(xbrt::exit_reason_name(why)));
+    if (why != xbrt::ExitReason::Fatal) g_guest_left = true;
+}
 
 void survey(const xbrt::LaunchRequest &request)
 {
@@ -228,8 +255,11 @@ void boot(Link link)
     if (link.request && !link.request->survey_folder.empty()) {
         survey(*link.request);
     } else if (link.request) {
-        Services services;
-        xbrt::Session::boot(*link.request, services);   // U2 keeps the session; U0 only proves the read
+        play(*link.request);
+        xbrt::run_log::run("END");
+        g_screen.add(g_guest_left ? "done. returning to the hub" : "done. B returns to the hub", LineColour::White);
+        g_boot_running = false;
+        return;
     }
 
     std::string device = xbrt::gfx::device_line();
@@ -378,6 +408,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
                 bool down = b_down();
                 if (down && !b_was_down) return_to_hub("B");
                 b_was_down = down;
+                if (g_guest_left) return_to_hub("guest exit");
             }
             uint64_t version = g_screen.version();
             bool changed = version != shown;

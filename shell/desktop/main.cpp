@@ -1,3 +1,4 @@
+#include "host/cpu.h"
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
@@ -77,11 +78,26 @@ std::wstring wide(std::u16string_view s) { return std::wstring(reinterpret_cast<
 
 std::u16string narrow16(const std::wstring &s) { return std::u16string(reinterpret_cast<const char16_t *>(s.data()), s.size()); }
 
+// lab/privileged's test port: in reads back what out last wrote, per access size.
+struct LoopbackPort final : xbrt::PortDevice {
+    uint32_t last = 0;
+    uint32_t in(uint16_t, unsigned size) override { return size == 4 ? last : last & ((1u << (8 * size)) - 1); }
+    void out(uint16_t, unsigned, uint32_t value) override { last = value; }
+};
+
 struct DesktopServices final : xbrt::ShellServices {
+    LoopbackPort loopback;
     void stage(xbrt::BootStage, std::string_view l) override { line(std::string(l)); }
     void fail(xbrt::BootStage s, std::string_view l) override
     {
         line(std::string(xbrt::boot_stage_name(s)) + " FAIL " + std::string(l));
+    }
+    void log(std::string_view l) override { line(std::string(l)); }
+    void counters(std::string_view l) override { line(std::string(l)); }
+    void attach_devices(xbrt::Cpu &cpu) override
+    {
+        cpu.map_ports({0x80, 1}, loopback);
+        line("devices loopback port 0x80");
     }
     std::unique_ptr<xbrt::Source> open_disc(std::u16string_view path, std::string &error) override
     {
@@ -184,16 +200,16 @@ int run_xbe(const RunArgs &args)
     request.dir_path = narrow16(args.dir.wstring());
     request.xbe = args.xbe;
     DesktopServices services;
-    std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, services);
+    std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, **memory, services);
     if (!session) {
         line("END");
         return 1;
     }
-    // Stub until U2 workstreams A (host/cpu) and B (host/kernel.cpp) land. Then: map the image, link the kernel, map a
-    // loopback PortDevice at port 0x80 (lab/privileged), call the entry on thread 0, return at HalReturnToFirmware.
-    services.fail(xbrt::BootStage::Start, "guest execution is not wired into --run yet (U2 workstreams A and B)");
+    xbrt::ExitReason why = session->run();
+    if (const xbrt::Missing *stop = session->stop()) line("stop " + xbrt::missing_line(*stop) + " (crash.txt)");
+    line("exit " + std::string(xbrt::exit_reason_name(why)));
     line("END");
-    return 1;
+    return why == xbrt::ExitReason::Fatal ? 2 : 0;
 }
 
 }  // namespace
