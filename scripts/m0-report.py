@@ -59,6 +59,9 @@ def analyse(rows):
         v = [float(r[6]) + float(r[7]) + float(r[8]) for r in ok if r[2] == s]
         if v:
             out.append(f"  {s}: median {pct(v, .5):.1f} ms over {len(v)}")
+    rewrites = Counter(r[11] for r in ok if len(r) > 11 and r[11].startswith("rewrite"))
+    for rw, n in rewrites.most_common():
+        out.append(f"  {n} shaders took the D3D {rw}")
     fails = Counter((r[5], error_class(r[11] if len(r) > 11 else "")) for r in shaders if r[4] == "fail")
     for (step, cls), n in fails.most_common():
         out.append(f"  chain FAIL {n} at {step}: {cls}")

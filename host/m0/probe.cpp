@@ -924,7 +924,8 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         std::expected<Compiled, ChainError> r = compile(s);
         if (r) {
             tsv.row("shader", i, stage_name(s.stage), s.glsl_sha256.substr(0, 12), "ok", "-", fixed(r->ms.glslang_ms),
-                    fixed(r->ms.cross_ms), fixed(r->ms.d3dcompile_ms), r->hlsl.size(), r->dxbc.size(), "-");
+                    fixed(r->ms.cross_ms), fixed(r->ms.d3dcompile_ms), r->hlsl.size(), r->dxbc.size(),
+                    r->rewrites.empty() ? "-" : "rewrite " + r->rewrites);
             save_compiled(opt.out_dir, s, *r);
             compiled[i] = std::move(*r);
         } else {

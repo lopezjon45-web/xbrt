@@ -60,16 +60,31 @@ const char *target(Stage s)
 using ShaderPtr = std::unique_ptr<glslang_shader_t, decltype(&glslang_shader_delete)>;
 using ProgramPtr = std::unique_ptr<glslang_program_t, decltype(&glslang_program_delete)>;
 
-std::expected<std::vector<uint32_t>, std::string> to_spirv(const Shader &shader)
+// D3D has no point size, and SPIRV-Cross refuses a geometry shader that reads gl_in[].gl_PointSize (SPIR-V BuiltIn 1,
+// "Unsupported builtin in HLSL"); xemu's geometry shaders copy it through on every vertex.
+constexpr std::string_view kGsPointSize = "  gl_PointSize = gl_in[index].gl_PointSize;\n";
+
+std::string rewrite_for_d3d(const Shader &shader, std::string &rewrites)
+{
+    std::string glsl = shader.glsl;
+    if (shader.stage == Stage::Geometry) {
+        bool changed = false;
+        for (size_t at; (at = glsl.find(kGsPointSize)) != std::string::npos; changed = true) glsl.erase(at, kGsPointSize.size());
+        if (changed) rewrites = "gs-point-size";
+    }
+    return glsl;
+}
+
+std::expected<std::vector<uint32_t>, std::string> to_spirv(const std::string &glsl, Stage stage)
 {
     glslang_input_t input{};
     input.language = GLSLANG_SOURCE_GLSL;
-    input.stage = glslang_stage(shader.stage);
+    input.stage = glslang_stage(stage);
     input.client = GLSLANG_CLIENT_VULKAN;
     input.client_version = GLSLANG_TARGET_VULKAN_1_1;
     input.target_language = GLSLANG_TARGET_SPV;
     input.target_language_version = GLSLANG_TARGET_SPV_1_3;
-    input.code = shader.glsl.c_str();
+    input.code = glsl.c_str();
     input.default_version = 460;
     input.default_profile = GLSLANG_NO_PROFILE;
     input.messages = GLSLANG_MSG_DEFAULT_BIT;
@@ -136,7 +151,7 @@ std::expected<Compiled, ChainError> compile(const Shader &shader) noexcept
     double t0 = now_ms();
     std::expected<std::vector<uint32_t>, std::string> spirv;
     try {
-        spirv = to_spirv(shader);
+        spirv = to_spirv(rewrite_for_d3d(shader, out.rewrites), shader.stage);
     } catch (const std::exception &e) {
         spirv = std::unexpected(std::string("threw: ") + e.what());
     }
