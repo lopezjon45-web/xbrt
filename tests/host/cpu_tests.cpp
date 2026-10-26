@@ -566,12 +566,23 @@ struct Tests {
         Sleep(30);
         uint32_t after = device.reads;
         ResumeThread(h);
+        // A thread that polls a register is in the landing most of the time: every suspension must still succeed.
+        int polled_suspensions = 0;
+        for (int i = 0; i < 50; i++) {
+            Sleep(1);
+            if (suspend_outside_landing(h, &previous) != SuspendResult::Suspended) break;
+            polled_suspensions++;
+            ResumeThread(h);
+        }
         device.stop = true;
         DWORD exited = WaitForSingleObject(h, 5000);
-        std::string detail = format("parked=%lu inside=%d after %lld ms, outside=%d previous=%u reads while suspended=%u exited=%lu",
-                                    parked, int(inside), static_cast<long long>(waited), int(outside), previous, after - before, exited);
+        std::string detail = format("parked=%lu inside=%d after %lld ms, outside=%d previous=%u reads while suspended=%u "
+                                    "polled suspensions=%d/50 exited=%lu",
+                                    parked, int(inside), static_cast<long long>(waited), int(outside), previous, after - before,
+                                    polled_suspensions, exited);
         bool mmio_ok = parked == WAIT_OBJECT_0 && inside == SuspendResult::InsideTrap && waited >= 10 &&
-                       outside == SuspendResult::Suspended && previous == 0 && after == before && exited == WAIT_OBJECT_0;
+                       outside == SuspendResult::Suspended && previous == 0 && after == before && polled_suspensions == 50 &&
+                       exited == WAIT_OBJECT_0;
 
         struct Port final : PortDevice {
             HANDLE parked = CreateEventW(nullptr, TRUE, FALSE, nullptr);

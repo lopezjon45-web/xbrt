@@ -623,6 +623,7 @@ extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
     uint32_t next = route(t);
     c.Rip = next;
     tb->host.in_landing = 0;
+    while (*static_cast<volatile uint32_t *>(&tb->host.park_request)) SwitchToThread();
     reinterpret_cast<ResumeFn>(static_cast<uintptr_t>(g_cpu->gates.resume64))(&c);
     for (;;) {}
 }

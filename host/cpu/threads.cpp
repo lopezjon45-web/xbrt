@@ -297,11 +297,18 @@ SuspendResult suspend_outside_landing(void *thread, uint32_t *previous)
         context.ContextFlags = CONTEXT_CONTROL;
         GetThreadContext(thread, &context);
         if (!tb || *static_cast<volatile uint32_t *>(&tb->host.in_landing) == 0) {
+            if (tb) tb->host.park_request = 0;
             *previous = count;
             return SuspendResult::Suspended;
         }
+        // A thread that polls a register spends most of its time in the landing, so it is asked to wait at the
+        // landing's exit rather than caught outside by chance.
+        tb->host.park_request = 1;
         ResumeThread(thread);
-        if (std::chrono::steady_clock::now() >= deadline) return SuspendResult::InsideTrap;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            tb->host.park_request = 0;
+            return SuspendResult::InsideTrap;
+        }
         SwitchToThread();
     }
 }

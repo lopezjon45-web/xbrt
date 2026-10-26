@@ -148,6 +148,7 @@ struct HostPart {
     void *host_thread;
     uint32_t host_thread_id;
     uint32_t in_landing;
+    uint32_t park_request;    // NtSuspendThread asks the landing to wait at its exit, where it holds nothing
     SpawnArgs *spawn;
     uint32_t suspended;
 };

@@ -140,9 +140,9 @@ private:
 enum class CallConv : uint8_t { Stdcall, Cdecl, Fastcall, Thiscall };
 
 // NtSuspendThread's host side. A thread suspended inside the trap landing could keep a device's lock (the BQL) or the
-// router's routes_lock and stop every other device access, so the thread is suspended only at a point outside the
-// landing: it is resumed and suspended again until then, for at most 10 ms. `previous` is the suspend count before
-// this suspension.
+// router's routes_lock and stop every other device access, so the thread is suspended only outside the landing: one
+// found inside is asked to wait at the landing's exit and suspended there. A thread still inside after 10 ms (a device
+// access that blocks) is InsideTrap. `previous` is the suspend count before this suspension.
 enum class SuspendResult : uint8_t { Suspended, Failed, InsideTrap };
 SuspendResult suspend_outside_landing(void *thread, uint32_t *previous);
 
