@@ -78,10 +78,34 @@ $chainLibs = @(Get-ChildItem gen\glslang -Recurse -Include glslang.lib, glslang-
     spirv-cross-glsl.lib, spirv-cross-hlsl.lib | ForEach-Object { $_.FullName }) + @("d3dcompiler.lib")
 Note "shader chain libraries: $(($chainLibs | ForEach-Object { Split-Path $_ -Leaf }) -join ' ')"
 
+# The xemu side (host\xemu\shim and the vendored external\xemu, nv2a_vsh_cpu and libsamplerate) builds with clang-cl:
+# upstream is GNU C that cl.exe rejects (case ranges, statement expressions, ?:, constructors, cleanup attributes).
+# Its objects link directly, never through lib.exe: nothing references a type_init constructor by name, so a library
+# would drop the device with it.
+$clangcl = (Get-Command clang-cl.exe -ErrorAction SilentlyContinue).Source
+if (-not $clangcl) { $clangcl = "${env:ProgramFiles}\LLVM\bin\clang-cl.exe" }
+if (-not (Test-Path $clangcl)) { throw "clang-cl not found on PATH or in Program Files\LLVM" }
+Note "clang-cl: $clangcl $(& $clangcl --version | Select-Object -First 1)"
+Run python.exe @("-I", "tools\gen-xemu-trace.py", "external\xemu", "gen\xemu-include")
+New-Item -ItemType Directory -Force gen\xemu | Out-Null
+$xemuFlags = @("/nologo", "/c", "/O2", "/MT", "/Z7", "/utf-8", "/std:c11", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
+    "/D_CRT_SECURE_NO_WARNINGS", "/D_USE_MATH_DEFINES", "/DHAVE_CONFIG_H", "/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP",
+    "/Ihost\xemu\shim\include", "/Ihost\xemu", "/Igen\xemu-include", "/Iexternal\xemu", "/Iexternal\xemu\include",
+    "/Iexternal\xemu\hw\xbox\mcpx\apu\dsp", "/Iexternal\nv2a_vsh_cpu\src", "/Iexternal\libsamplerate\include")
+$vendoredWarnings = @("/W0", "-Wno-everything", "-Werror=implicit-function-declaration", "-Werror=implicit-int",
+    "-Werror=return-type")
+$xemuSources = @(python.exe -I tools\xemu-vendor.py list-c) + @(Get-ChildItem host\xemu\shim\src\*.c | ForEach-Object { "host\xemu\shim\src\$($_.Name)" })
+foreach ($src in $xemuSources) {
+    $warnings = if ($src -like "external\*") { $vendoredWarnings } else { @("/W3") }
+    # One object per source, named after its path: two debug.c files would otherwise share one object name.
+    $obj = "gen\xemu\" + (($src -replace '^external\\', '') -replace '[\\/.]', '_') + ".obj"
+    Run $clangcl ($xemuFlags + $warnings + @("/Fo$obj", $src))
+}
+$xemuObjs = Get-ChildItem gen\xemu\*.obj | ForEach-Object { $_.FullName }
 $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include",
     "/I$fork\include", "/I$fork\src")
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
-Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp | ForEach-Object { $_.FullName })
+Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp, host\xemu\*.cpp | ForEach-Object { $_.FullName })
 New-Item -ItemType Directory -Force gen\m0 | Out-Null
 Compile "gen\m0" @("/Iexternal\glslang", "/Igen\glslang\include", "/Iexternal\SPIRV-Cross") (Get-ChildItem host\m0\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })
@@ -90,7 +114,7 @@ Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.Fu
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")
 
 $coreObjs = Get-ChildItem gen\core\*.obj, gen\zydis\*.obj, gen\zycore\*.obj, gen\xbsdb\*.obj | ForEach-Object { $_.FullName }
-$hostObjs = @(Get-ChildItem gen\host\*.obj, gen\m0\*.obj | ForEach-Object { $_.FullName }) + @("gen\fork\xboxrecomp_kernel.lib") + $chainLibs
+$hostObjs = @(Get-ChildItem gen\host\*.obj, gen\m0\*.obj | ForEach-Object { $_.FullName }) + $xemuObjs + @("gen\fork\xboxrecomp_kernel.lib") + $chainLibs
 $uwpObjs = Get-ChildItem gen\uwp\*.obj | ForEach-Object { $_.FullName }
 
 Run link.exe (@("/nologo", "/OUT:gen\xbrt.exe", "/SUBSYSTEM:WINDOWS", "/APPCONTAINER", "/DEBUG", "/OPT:REF", "/OPT:ICF", "/PDB:gen\xbrt.pdb") +
@@ -119,8 +143,10 @@ $allow = @(
     # The UCRT math the shader chain links (glslang folds constants with them). sin, cos, tan, log and exp test
     # __use_fma3_lib at entry and jump to their FMA3 tail only when it is set (llvm-objdump of the 10.0.26100 libucrt.lib
     # objects); the *_fma bodies and __remainder_piby2_fma3 are reached only from such a test, which the --guards
-    # listing below prints from this build's own disassembly. Jaguar reports no FMA3, so __use_fma3_lib stays 0.
-    '--allow', '^(sin|cos|tan|log|exp)$',
+    # listing below prints from this build's own disassembly. Jaguar reports no FMA3, so __use_fma3_lib stays 0. The
+    # xemu side adds pow, exp2, exp2f and log2f (*_fma bodies, same test) and powf, whose FMA3 code sits inline behind
+    # the same test at its entry.
+    '--allow', '^(sin|cos|tan|log|exp|powf)$',
     '--allow', '^[a-z0-9]+_fma$',
     '--allow', '^__remainder_piby2_fma3(_bdl)?$'
 )
