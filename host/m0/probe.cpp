@@ -45,6 +45,7 @@ struct Resume {
     std::set<long> shaders, pipelines;
     bool bench = false, ended = false;
     int launches = 0;
+    bool last_launch_began_an_item = true;
     std::optional<std::pair<std::string, long>> unfinished_begin;
 };
 
@@ -65,11 +66,17 @@ Resume read_resume(const std::wstring &path)
     while (std::getline(in, line)) {
         std::vector<std::string> f = fields(line);
         if (f.empty()) continue;
-        if (f[0] == "begin" && f.size() >= 3) r.unfinished_begin = std::make_pair(f[1], std::stol(f[2]));
+        if (f[0] == "begin" && f.size() >= 3) {
+            r.unfinished_begin = std::make_pair(f[1], std::stol(f[2]));
+            r.last_launch_began_an_item = true;
+        }
         else if (f[0] == "shader" && f.size() >= 2) { r.shaders.insert(std::stol(f[1])); r.unfinished_begin.reset(); }
         else if (f[0] == "pipeline" && f.size() >= 2) { r.pipelines.insert(std::stol(f[1])); r.unfinished_begin.reset(); }
         else if (f[0] == "benchdone") { r.bench = true; r.unfinished_begin.reset(); }
-        else if (f[0] == "launch") r.launches++;
+        else if (f[0] == "launch") {
+            r.launches++;
+            r.last_launch_began_an_item = false;
+        }
         else if (f[0] == "end") r.ended = true;
     }
     return r;
@@ -814,7 +821,6 @@ void clear_shader_caches(Device &d, Tsv &tsv)
         {"IMPLICIT_D3D_CACHE_FOR_DRIVER", D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CACHE_FOR_DRIVER},
         {"IMPLICIT_D3D_CONVERSIONS", D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CONVERSIONS},
         {"IMPLICIT_DRIVER_MANAGED", D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_DRIVER_MANAGED},
-        {"APPLICATION_MANAGED", D3D12_SHADER_CACHE_KIND_FLAG_APPLICATION_MANAGED},
     };
     for (const auto &k : kinds)
         tsv.row("cache", k.name, hex(dev9->ShaderCacheControl(k.kind, D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR)));
@@ -888,6 +894,12 @@ Outcome run_probe(const ProbeOptions &opt, const LineSink &sink)
         sink("m0 already complete (m0.tsv has its end row)");
         summarize(path, sink);
         return Outcome::Done;
+    }
+    // A launch that died before its first item died in setup, which a relaunch only repeats.
+    if (!resume.last_launch_began_an_item && !resume.unfinished_begin) {
+        tsv.row("stalled", resume.launches, "the last launch ended before its first item; see its last rows");
+        sink("m0 FAIL launch " + std::to_string(resume.launches) + " ended in setup, before its first item (m0.tsv)");
+        return Outcome::Failed;
     }
     const Corpus &c = *corpus;
     if (resume.unfinished_begin) {

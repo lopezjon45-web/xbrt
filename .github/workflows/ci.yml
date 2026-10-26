@@ -149,6 +149,16 @@ jobs:
           Copy-Item m0.tsv ..\out\m0-warp.tsv
           Get-Content ..\out\m0-warp-run.txt
           if ($code -ne 0) { exit 1 }
+      # A launch that dies in setup (on the console, a shader-cache clear) must stop the run, not loop it.
+      - name: The M0 probe stops after a launch that died in setup
+        if: hashFiles('tools/m0/corpus.lock') != ''
+        shell: bash
+        run: |
+          mkdir -p m0-stall && cd m0-stall
+          printf 'launch\t1\nmeta\tadapter\tx\n' > m0.tsv
+          code=0; ../gen/xbrt_desktop.exe --m0 ../gen/m0-corpus.txt > /dev/null || code=$?
+          cat m0.tsv
+          [ "$code" = 1 ] && grep -q '^stalled' m0.tsv && ! grep -q '^shader' m0.tsv
       - name: Report the M0 probe on WARP
         if: hashFiles('tools/m0/corpus.lock') != ''
         shell: bash
