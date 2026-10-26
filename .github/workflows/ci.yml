@@ -225,6 +225,6 @@ jobs:
         shell: bash
         run: |
           tag="build-${{ github.run_number }}"
-          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/cpu-tests.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe $(ls out/m0-warp.tsv out/m0-warp-report.txt 2>/dev/null) \
+          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/gate-guards.txt out/build-info.txt out/desktop-run.txt out/cpu-tests.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe $(ls out/m0-warp.tsv out/m0-warp-report.txt 2>/dev/null) \
             --prerelease --title "xbrt build ${{ github.run_number }} ($(git rev-parse --short HEAD))" \
             --notes "Run ${{ github.run_id }} of ${{ github.sha }}. Install LopezJon.XboxRuntime_*.appx; the XbrtBisect0..5 packages are the start-refusal ladder (package/make-manifests.py)."

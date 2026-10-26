@@ -118,8 +118,18 @@ $allow = @(
     '--allow', '^(strnlen|wcslen|wcsnlen|wmemchr|wmemcmp)$',
     '--allow', '^common_strnlen(_simd)?<',
     '--allow', '^\?(compare_equals|compute_byte_mask)@\?\$__crt_simd_(pack_)?traits@',
-    '--allow', '^log10$'
+    '--allow', '^log10$',
+    # The UCRT math the shader chain links (glslang folds constants with them). sin, cos, tan, log and exp test
+    # __use_fma3_lib at entry and jump to their FMA3 tail only when it is set (llvm-objdump of the 10.0.26100 libucrt.lib
+    # objects); the *_fma bodies and __remainder_piby2_fma3 are reached only from such a test, which the --guards
+    # listing below prints from this build's own disassembly. Jaguar reports no FMA3, so __use_fma3_lib stays 0.
+    '--allow', '^(sin|cos|tan|log|exp)$',
+    '--allow', '^[a-z0-9]+_fma$',
+    '--allow', '^__remainder_piby2_fma3(_bdl)?$'
 )
+& python scripts\isa-gate.py --tool dumpbin --guards '^([a-z0-9]+_fma|__remainder_piby2_fma3(_bdl)?)$' gen\xbrt.exe |
+    Tee-Object -Variable guards | Write-Output
+[IO.File]::WriteAllText("$root\out\gate-guards.txt", ($guards -join "`n") + "`n")
 # Windows PowerShell's Tee-Object and Set-Content write UTF-16 and CRLF; the Mac reads these files, so they are
 # written as UTF-8 with LF through .NET.
 # xbrt.exe goes to the console and must have no offender outside the allowlist. xbrt_desktop.exe runs only on the

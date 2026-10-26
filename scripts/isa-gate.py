@@ -9,9 +9,12 @@ sits in, so a count can be checked against the code that decides at run time whe
 
     isa-gate.py --tool dumpbin <file> [--allow REGEX ...]      on the build machine (symbols)
     isa-gate.py --tool objdump <file> --report-only            anywhere (counts only)
+    isa-gate.py --tool dumpbin <file> --guards REGEX            the evidence for an --allow
 
 --allow names functions, by a regex on their (decorated) name, whose offenders are known to run only
-behind a CPU-feature check. Everything else counts as a failure and the exit code is 1.
+behind a CPU-feature check. Everything else counts as a failure and the exit code is 1. --guards prints, for each
+offending function the regex names, every call or jump to it with the four instructions before, so the check that
+guards it can be read in the log.
 """
 import argparse
 import collections
@@ -83,6 +86,21 @@ def disassemble(tool, path):
         sys.exit(f"{cmd[0]} failed ({proc.returncode}): {err.strip()}")
 
 
+def print_guards(tool, path, names):
+    insns = list(disassemble(tool, path))
+    offending = {f for f, _, m, o in insns if classify(m, o) and names.search(f)}
+    for target in sorted(offending):
+        word = re.compile(r"(?<![\w@?$])" + re.escape(target) + r"(?![\w@$])")
+        sites = [i for i, (f, _, m, o) in enumerate(insns) if f != target and m.lower().startswith(("call", "j"))
+                 and word.search(o)]
+        print(f"{target}: {len(sites)} branches in")
+        for i in sites:
+            for f, a, m, o in insns[max(0, i - 4): i + 1]:
+                print(f"    {f:24.24} {a} {m} {o}")
+            print()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file")
@@ -92,8 +110,11 @@ def main():
     ap.add_argument("--report-only", action="store_true", help="print the counts and exit 0 whatever they are")
     ap.add_argument("--list", type=int, default=30, help="how many offending functions to list")
     ap.add_argument("--verbose", action="store_true", help="print every offender with its address")
+    ap.add_argument("--guards", metavar="REGEX", help="print the branches into offending functions this names")
     args = ap.parse_args()
     allow = [re.compile(a) for a in args.allow]
+    if args.guards:
+        return print_guards(args.tool, args.file, re.compile(args.guards))
 
     total = 0
     counts = collections.Counter()
