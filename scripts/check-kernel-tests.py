@@ -7,7 +7,8 @@ import sys
 
 REQUIRED = ["DbgPrint", "KeQuerySystemTime", "NtCreateFile", "NtReadFile", "stub", "noop", "unbridged", "home-writes", "usb-pad",
             "ExInterlockedAddLargeInteger", "ExInterlockedCompareExchange64", "InterlockedCompareExchange",
-            "ExfInterlockedInsertTailList", "RtlUlongByteSwap", "RtlExtendedMagicDivide", "idle-stub", "raise-refused"]
+            "ExfInterlockedInsertTailList", "RtlUlongByteSwap", "RtlExtendedMagicDivide", "idle-stub", "raise-refused",
+            "clocks"]
 
 
 def main(path):
