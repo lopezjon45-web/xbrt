@@ -1,0 +1,7 @@
+lab apu start
+lab apu xgscnt still while xcntmode off
+lab apu xgscnt advances
+lab apu xgscnt rate 48k
+lab apu isr saw ists 0x00000011
+lab apu dpc ran
+lab apu ok

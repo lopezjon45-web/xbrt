@@ -198,6 +198,7 @@ jobs:
           $root = (Get-Location).Path
           foreach ($lab in Get-ChildItem lab-xbe -Directory) {
             Run-Lab "lab-work\$($lab.Name)" "$root\lab-xbe\$($lab.Name)" "$root\out\lab-run\$($lab.Name).txt"
+            Select-String -Path "$root\out\lab-run\$($lab.Name).txt" -SimpleMatch "$($lab.Name) " | ForEach-Object { "  $($_.Line)" }
             if (Test-Path "lab\$($lab.Name)\expected-second.txt") {
               Run-Lab "lab-work\$($lab.Name)" "$root\lab-xbe\$($lab.Name)" "$root\out\lab-second\$($lab.Name).txt"
             }
