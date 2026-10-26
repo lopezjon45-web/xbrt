@@ -7,8 +7,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -54,7 +56,8 @@ std::string_view exit_reason_name(ExitReason r)
 
 std::string missing_line(const Missing &m)
 {
-    return std::string(missing_kind_name(m.kind)) + ": " + m.what + (m.where_symbol.empty() ? "" : " at " + m.where_symbol);
+    return std::string(missing_kind_name(m.kind)) + ": " + m.what + (m.where_symbol.empty() ? "" : " at " + m.where_symbol) +
+           (m.thread.empty() ? "" : " on " + m.thread);
 }
 
 std::string xbe_summary_line(const XbeImage &xbe)
@@ -78,6 +81,26 @@ std::string format(const char *fmt, ...)
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
     return buf;
+}
+
+std::string thread_label(const GuestThread *t)
+{
+    return t ? format("t%u", t->index()) : format("host thread %lu", GetCurrentThreadId());
+}
+
+// The kernel call a thread is inside, innermost first, so the end of a run names every call that never returned.
+struct ThreadCalls {
+    uint32_t index = 0;
+    std::atomic<uint16_t> ordinal{0};
+    std::atomic<uint64_t> since_ms{0};
+};
+thread_local ThreadCalls *t_calls = nullptr;
+
+// Calls that end their thread or the run by contract: in flight at the end, they are not calls that never returned.
+bool never_returns(uint16_t ordinal)
+{
+    constexpr uint16_t kHalReturnToFirmware = 49, kPsTerminateSystemThread = 258;
+    return ordinal == kHalReturnToFirmware || ordinal == kPsTerminateSystemThread;
 }
 
 std::string ascii_path(std::u16string_view s)
@@ -189,6 +212,8 @@ struct Session::State final : MissingSink {
     uint32_t thread0_id = 0;
 
     SRWLOCK lock = SRWLOCK_INIT;
+    SRWLOCK calls_lock = SRWLOCK_INIT;
+    std::deque<ThreadCalls> calls;
     std::optional<Missing> stop;
     std::optional<TrapReport> trap;
     std::optional<uint32_t> hub;
@@ -210,16 +235,50 @@ struct Session::State final : MissingSink {
         SetEvent(stop_event);
     }
 
-    // The kernel's and the devices' reports arrive on the guest thread that made the call; a stop ends that thread
-    // here, so the bridge's frame never resumes the guest.
-    void missing(const Missing &m) noexcept override
+    ThreadCalls &calls_of(const GuestThread &t)
     {
+        if (!t_calls) {
+            AcquireSRWLockExclusive(&calls_lock);
+            t_calls = &calls.emplace_back();
+            t_calls->index = t.index();
+            ReleaseSRWLockExclusive(&calls_lock);
+        }
+        return *t_calls;
+    }
+
+    void log_in_flight()
+    {
+        uint64_t now = GetTickCount64();
+        AcquireSRWLockShared(&calls_lock);
+        for (const ThreadCalls &c : calls)
+            if (uint16_t o = c.ordinal; o && !never_returns(o))
+                shell->log(format("in flight at the end of the run: kernel call %u %s on t%u, for %llu ms", o,
+                                  std::string(kernel_export_name({o})).c_str(), c.index,
+                                  static_cast<unsigned long long>(now - c.since_ms)));
+        ReleaseSRWLockShared(&calls_lock);
+    }
+
+    // The kernel's and the devices' reports arrive on the thread that made the call. A stop ends a guest thread
+    // here, so the bridge's frame never resumes the guest.
+    void missing(const Missing &reported) noexcept override
+    {
+        Missing m = reported;
+        GuestThread *t = GuestThread::current_if_any();
+        m.thread = thread_label(t);
         if (!m.stop) {
             shell->log("missing " + missing_line(m));
             return;
         }
+        if (t_calls && t_calls->ordinal) {
+            uint16_t o = t_calls->ordinal.exchange(0);
+            shell->log(format("kernel call %u %s on %s ended by this stop", o, std::string(kernel_export_name({o})).c_str(),
+                              m.thread.c_str()));
+        }
         record_stop(m, nullptr);
-        GuestThread::current().exit(kStopExitCode);
+        if (t && t->in_call()) t->exit(kStopExitCode);
+        // A runtime thread outside guest code has no guest frame to unwind and must not go on with the value it was
+        // refused; it waits for the process to end.
+        for (;;) Sleep(INFINITE);
     }
 
     void log(std::string_view line) noexcept override { shell->log(line); }
@@ -251,8 +310,8 @@ struct Session::State final : MissingSink {
         }
         const Missing &m = *stop;
         fprintf(f, "%s\n", missing_line(m).c_str());
-        fprintf(f, "kind %s\nwhat %s\nwhere 0x%08X %s\nhost thread %u\n", std::string(missing_kind_name(m.kind)).c_str(), m.what.c_str(),
-                m.where.v, m.where_symbol.c_str(), m.host_thread);
+        fprintf(f, "kind %s\nwhat %s\nwhere 0x%08X %s\nthread %s\nhost thread %u\n", std::string(missing_kind_name(m.kind)).c_str(),
+                m.what.c_str(), m.where.v, m.where_symbol.c_str(), m.thread.c_str(), m.host_thread);
         if (trap) {
             const TrapReport &r = *trap;
             fprintf(f, "thread %u eip 0x%08X\n", r.thread, r.where.v);
@@ -299,29 +358,39 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
         frame.esp += 4;
         return;
     }
-    if (!(s.trace_kernel && id.is_kernel())) return on_host_call(thread, id, frame);
-    // NtCreateFile (190) and NtOpenFile (202) take POBJECT_ATTRIBUTES as their third argument; its ObjectName at +4
-    // is an ANSI_STRING {Length, MaximumLength, Buffer}. The name is what a title's first wall usually is.
-    std::string name;
+    if (!id.is_kernel()) return on_host_call(thread, id, frame);
     uint16_t o = id.ordinal().v;
-    uint32_t attributes = (o == 190 || o == 202) ? mem32(frame.esp + 12) : 0;
-    if (attributes && readable(attributes, 8)) {
-        uint32_t object_name = mem32(attributes + 4);
-        if (object_name && readable(object_name, 8))
-            name = " name=\"" + guest_text(mem32(object_name + 4), mem32(object_name) & 0xFFFF) + "\"";
+    ThreadCalls &calls = s.calls_of(thread);
+    uint64_t outer_since = calls.since_ms.exchange(GetTickCount64());
+    uint16_t outer = calls.ordinal.exchange(o);
+    if (s.trace_kernel) {
+        // NtCreateFile (190) and NtOpenFile (202) take POBJECT_ATTRIBUTES as their third argument; its ObjectName at
+        // +4 is an ANSI_STRING {Length, MaximumLength, Buffer}. The name is what a title's first wall usually is.
+        std::string name;
+        uint32_t attributes = (o == 190 || o == 202) ? mem32(frame.esp + 12) : 0;
+        if (attributes && readable(attributes, 8)) {
+            uint32_t object_name = mem32(attributes + 4);
+            if (object_name && readable(object_name, 8))
+                name = " name=\"" + guest_text(mem32(object_name + 4), mem32(object_name) & 0xFFFF) + "\"";
+        }
+        s.shell->log(format("kernel call %u %s(%08X, %08X, %08X, %08X)%s from %s on t%u", o,
+                            std::string(kernel_export_name(id.ordinal())).c_str(), mem32(frame.esp + 4), mem32(frame.esp + 8),
+                            mem32(frame.esp + 12), mem32(frame.esp + 16), name.c_str(),
+                            s.symbols.describe({mem32(frame.esp)}, s.xbe).c_str(), thread.index()));
     }
-    s.shell->log(format("kernel call %u %s(%08X, %08X, %08X, %08X)%s from %s", o, std::string(kernel_export_name(id.ordinal())).c_str(),
-                        mem32(frame.esp + 4), mem32(frame.esp + 8), mem32(frame.esp + 12), mem32(frame.esp + 16),
-                        name.c_str(), s.symbols.describe({mem32(frame.esp)}, s.xbe).c_str()));
     on_host_call(thread, id, frame);
-    s.shell->log(format("kernel call %u returned eax=%08X", o, frame.eax));
+    if (s.trace_kernel) s.shell->log(format("kernel call %u returned eax=%08X on t%u", o, frame.eax, thread.index()));
+    calls.ordinal = outer;
+    calls.since_ms = outer_since;
 }
 
 // The trap router's fatal path: record and signal; the router unwinds the faulting thread itself.
 void on_fatal(const TrapReport &r) noexcept
 {
     Session::State &s = *g_state;
-    s.record_stop({MissingKind::Instruction, true, r.what, r.where, s.symbols.describe(r.where, s.xbe), GetCurrentThreadId()}, &r);
+    s.record_stop({MissingKind::Instruction, true, r.what, r.where, s.symbols.describe(r.where, s.xbe), GetCurrentThreadId(),
+                   thread_label(GuestThread::current_if_any())},
+                  &r);
 }
 
 }  // namespace
@@ -475,8 +544,15 @@ ExitReason Session::run()
     HANDLE waits[2] = {s.stop_event, s.thread0};
     CpuCounters before = s.cpu->counters();
     unsigned seconds = 0, idle = 0;
+    ULONGLONG started = GetTickCount64();
     for (;;) {
         DWORD w = WaitForMultipleObjects(2, waits, FALSE, 1000);
+        if (w == WAIT_OBJECT_0 + 1) {
+            DWORD code = 0;
+            GetExitCodeThread(s.thread0, &code);
+            s.shell->log(format("thread t0 ended (exit code 0x%lX) %llu ms into the run, %u guest threads counted running", code,
+                                static_cast<unsigned long long>(GetTickCount64() - started), s.cpu->counters().guest_threads));
+        }
         if (w != WAIT_TIMEOUT) break;
         seconds++;
         CpuCounters now = s.cpu->counters();
@@ -490,12 +566,13 @@ ExitReason Session::run()
             s.record_stop({MissingKind::Hang, true,
                            format("no kernel call for %u s (%u guest threads; thread 0 is host thread %u)", kWatchdogSeconds,
                                   now.guest_threads, s.thread0_id),
-                           {}, "", s.thread0_id},
+                           {}, "", s.thread0_id, "the watchdog"},
                           nullptr);
             break;
         }
     }
     ExitReason reason = s.exit_reason();
+    s.log_in_flight();
     if (reason == ExitReason::Fatal) s.write_crash();
     s.save_plan();
     return reason;

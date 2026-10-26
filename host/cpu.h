@@ -146,6 +146,9 @@ public:
     // The calling host thread's guest identity, created on first use (how the runtime's own threads call guest ISRs
     // and callbacks).
     static GuestThread &current();
+    // The calling host thread's guest identity if it already has one; never creates it. A runtime thread that has
+    // not run guest code (the kernel's timer thread polling a device) has none.
+    static GuestThread *current_if_any();
 
     // A new host thread whose first act is call(entry, args, Stdcall).
     static GuestThread &spawn(GuestVa entry, std::span<const uint32_t> args, const SpawnOptions &options);
@@ -161,6 +164,7 @@ public:
     GuestVa kpcr() const;      // fs:[0] of this thread == its ThreadBlock base
     GuestVa ethread() const;   // KPRCB.CurrentThread
     uint32_t index() const;    // 0 for the main thread; the survey and crash.txt name threads by it
+    bool in_call() const;      // inside guest code or a host call it made, so exit() has a frame to unwind to
     void resume();             // NtResumeThread on a suspended spawn
     uint32_t host_thread_id() const;
 

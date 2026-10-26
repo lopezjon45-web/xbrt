@@ -163,7 +163,7 @@ void play(const xbrt::LaunchRequest &request)
     if (why == xbrt::ExitReason::MainReturned) {
         // A console title never returns from main while it plays; a return is the title giving up, so the hub hears
         // an error, not ok.
-        std::string line = "main returned after " + std::to_string((GetTickCount64() - started) / 1000) + " s";
+        std::string line = "thread t0 (the XBE entry) returned after " + std::to_string((GetTickCount64() - started) / 1000) + " s";
         report("Feature", "stop Feature: " + line, LineColour::Red);
     }
     if (const xbrt::Missing *stop = session->stop()) {

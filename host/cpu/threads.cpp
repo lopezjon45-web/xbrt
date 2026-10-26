@@ -272,6 +272,8 @@ GuestThread &GuestThread::current()
     return *t_block->host.thread;
 }
 
+GuestThread *GuestThread::current_if_any() { return t_block ? t_block->host.thread : nullptr; }
+
 GuestThread &GuestThread::spawn(GuestVa entry, std::span<const uint32_t> args, const SpawnOptions &options)
 {
     ThreadBlock *tb = make_thread(options.stack_size, options.tls_data_size, options.priority);
@@ -334,6 +336,7 @@ void GuestThread::exit(uint32_t code) { unwind_thread(block_, code); }
 GuestVa GuestThread::kpcr() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_))}; }
 GuestVa GuestThread::ethread() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_)) + kEthreadOffset}; }
 uint32_t GuestThread::index() const { return block_->host.index; }
+bool GuestThread::in_call() const { return block_->host.depth > 0; }
 uint32_t GuestThread::host_thread_id() const { return block_->host.host_thread_id; }
 
 void GuestThread::resume()
