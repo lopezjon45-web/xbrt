@@ -3,7 +3,7 @@
 # leave this machine. Run once per clone.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
-hook="$repo/.git/hooks/pre-push"
+hook="$(git -C "$repo" rev-parse --git-common-dir)/hooks/pre-push"
 cat > "$hook" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

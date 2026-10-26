@@ -158,7 +158,14 @@ void play(const xbrt::LaunchRequest &request)
     Services services;
     std::expected<xbrt::Session, xbrt::BootError> session = xbrt::Session::boot(request, *g_memory, services);
     if (!session) return;
+    ULONGLONG started = GetTickCount64();
     xbrt::ExitReason why = session->run();
+    if (why == xbrt::ExitReason::MainReturned) {
+        // A console title never returns from main while it plays; a return is the title giving up, so the hub hears
+        // an error, not ok.
+        std::string line = "main returned after " + std::to_string((GetTickCount64() - started) / 1000) + " s";
+        report("Feature", "stop Feature: " + line, LineColour::Red);
+    }
     if (const xbrt::Missing *stop = session->stop()) {
         std::string line = xbrt::missing_line(*stop);
         g_screen.add(line, LineColour::Red);

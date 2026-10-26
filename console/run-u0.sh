@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-u0.sh <release dir> [--disc-match <text> | --survey "E:\Xbox" | --upload-xbe <default.xbe>] [--bisect] [--deadline N]
+# run-u0.sh <release dir> [--disc-match <text> | --survey "E:\Xbox" | --upload-xbe <default.xbe>] [--trace kernel] [--bisect] [--deadline N]
 #
 # <release dir> is a download of one CI prerelease (gh release download build-N -D <dir>) holding the appx files and
 # SHA256SUMS.txt. Acts on the console only while ~/mesa-one-s/xbox/console-free reads exactly "xbrt". Never
@@ -22,6 +22,7 @@ DISC=""
 DISC_MATCH=""
 SURVEY=""
 UPLOAD_XBE=""
+TRACE=""
 BISECT=0
 LIBRARY=/Users/jonlopez/mesa-one-s/xbrt-local/library.txt
 DRIVE_MOUNT_FILE=/Users/jonlopez/mesa-one-s/xbrt-local/drive-mount.txt   # the drive's Xbox folder when it is on the Mac; local only
@@ -34,6 +35,7 @@ while [ $# -gt 0 ]; do
         --disc-match) DISC_MATCH=$2; shift ;;
         --survey) SURVEY=$2; shift ;;
         --upload-xbe) UPLOAD_XBE=$2; shift ;;
+        --trace) TRACE=$2; shift ;;
         --bisect) BISECT=1 ;;
         --deadline) DEADLINE=$2; shift ;;
         *) die "unknown option $1" ;;
@@ -134,13 +136,14 @@ $hits"
 
 # launch_link: the hub's link for the disc, the extracted disc or the survey folder, each value escaped once
 launch_link() {
-    local back; back=$(urlenc 'decomp:')
+    local back extra=""; back=$(urlenc 'decomp:')
+    [ -z "$TRACE" ] || extra="&trace=$(urlenc "$TRACE")"
     if [ -n "$SURVEY" ]; then
         printf 'xboxrt:?survey=%s&launchOnExit=%s' "$(urlenc "$SURVEY")" "$back"
     elif [ -n "$UPLOAD_XBE" ]; then
-        printf 'xboxrt:?dir=disc&launchOnExit=%s' "$back"
+        printf 'xboxrt:?dir=disc&launchOnExit=%s%s' "$back" "$extra"
     else
-        printf 'xboxrt:?disc=%s&home=%s&launchOnExit=%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$back"
+        printf 'xboxrt:?disc=%s&home=%s&launchOnExit=%s%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$back" "$extra"
     fi
 }
 

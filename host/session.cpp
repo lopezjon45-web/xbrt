@@ -299,10 +299,22 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
         frame.esp += 4;
         return;
     }
-    if (s.trace_kernel && id.is_kernel())
-        s.shell->log(format("kernel call %u %s from %s", id.ordinal().v, std::string(kernel_export_name(id.ordinal())).c_str(),
-                            s.symbols.describe({mem32(frame.esp)}, s.xbe).c_str()));
+    if (!(s.trace_kernel && id.is_kernel())) return on_host_call(thread, id, frame);
+    // NtCreateFile (190) and NtOpenFile (202) take POBJECT_ATTRIBUTES as their third argument; its ObjectName at +4
+    // is an ANSI_STRING {Length, MaximumLength, Buffer}. The name is what a title's first wall usually is.
+    std::string name;
+    uint16_t o = id.ordinal().v;
+    uint32_t attributes = (o == 190 || o == 202) ? mem32(frame.esp + 12) : 0;
+    if (attributes && readable(attributes, 8)) {
+        uint32_t object_name = mem32(attributes + 4);
+        if (object_name && readable(object_name, 8))
+            name = " name=\"" + guest_text(mem32(object_name + 4), mem32(object_name) & 0xFFFF) + "\"";
+    }
+    s.shell->log(format("kernel call %u %s(%08X, %08X, %08X, %08X)%s from %s", o, std::string(kernel_export_name(id.ordinal())).c_str(),
+                        mem32(frame.esp + 4), mem32(frame.esp + 8), mem32(frame.esp + 12), mem32(frame.esp + 16),
+                        name.c_str(), s.symbols.describe({mem32(frame.esp)}, s.xbe).c_str()));
     on_host_call(thread, id, frame);
+    s.shell->log(format("kernel call %u returned eax=%08X", o, frame.eax));
 }
 
 // The trap router's fatal path: record and signal; the router unwinds the faulting thread itself.
