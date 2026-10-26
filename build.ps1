@@ -87,7 +87,7 @@ if (-not $clangcl) { $clangcl = "${env:ProgramFiles}\LLVM\bin\clang-cl.exe" }
 if (-not (Test-Path $clangcl)) { throw "clang-cl not found on PATH or in Program Files\LLVM" }
 Note "clang-cl: $clangcl $(& $clangcl --version | Select-Object -First 1)"
 Run python.exe @("-I", "tools\gen-xemu-trace.py", "external\xemu", "gen\xemu-include")
-New-Item -ItemType Directory -Force gen\xemu | Out-Null
+New-Item -ItemType Directory -Force gen\xemu, gen\xemu-tests | Out-Null
 $xemuFlags = @("/nologo", "/c", "/O2", "/MT", "/Z7", "/utf-8", "/std:c11", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
     "/D_CRT_SECURE_NO_WARNINGS", "/D_USE_MATH_DEFINES", "/DHAVE_CONFIG_H", "/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP",
     "/Ihost\xemu\shim\include", "/Ihost\xemu", "/Igen\xemu-include", "/Iexternal\xemu", "/Iexternal\xemu\include",
@@ -127,6 +127,9 @@ Run link.exe (@("/nologo", "/OUT:gen\xbrt_desktop.exe", "/SUBSYSTEM:CONSOLE", "/
 Run link.exe (@("/nologo", "/OUT:gen\xbrt_tests.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_tests.pdb") +
     (Get-ChildItem gen\tests\*.obj | ForEach-Object { $_.FullName }) + $coreObjs)
 Run link.exe (@("/nologo", "/OUT:gen\xbrt-inspect.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt-inspect.pdb", "gen\inspect\main.obj") + $coreObjs)
+Run $clangcl ($xemuFlags + @("/W3", "/Fogen\xemu-tests\shim_tests.obj", "tests\xemu\shim_tests.c"))
+Run link.exe (@("/nologo", "/OUT:gen\xemu_tests.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xemu_tests.pdb", "gen\xemu-tests\shim_tests.obj") +
+    $xemuObjs + @("onecore.lib"))
 
 Run gen\xbrt_tests.exe @()
 
