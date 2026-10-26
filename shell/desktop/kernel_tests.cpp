@@ -103,7 +103,9 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
     const uint32_t file_bytes = uint32_t(std::strlen(kFileText));
 
     TestSink sink;
-    KernelSetup setup{&memory, &sink, nullptr,
+    // GuestThread::current() builds the calling thread's ThreadBlock through the installed CPU, as the session does.
+    Cpu &cpu = Cpu::install(memory, on_host_call, [](const TrapReport &) noexcept {}, CpuOptions{});
+    KernelSetup setup{&memory, &sink, &cpu,
                       std::u16string(reinterpret_cast<const char16_t *>(disc.wstring().c_str())),
                       std::u16string(reinterpret_cast<const char16_t *>(saves.wstring().c_str())),
                       {}, {}, nullptr, nullptr};
