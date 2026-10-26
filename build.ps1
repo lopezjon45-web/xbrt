@@ -32,7 +32,10 @@ $app = @("/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP", "/I$cppwinrt")
 function Compile($outDir, [string[]]$extra, [string[]]$sources) {
     Run cl.exe ($common + $extra + @("/c", "/Fd$outDir\", "/Fo$outDir\") + $sources)
 }
-$cflags = @("/nologo", "/O2", "/MT", "/W0", "/Zi", "/bigobj", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS")
+# /std:c11 and the conformant preprocessor: XbSymbolDatabase builds as C11 and its OOVPA tables expand variadic macros
+# that the traditional MSVC preprocessor mangles (run 40276849600).
+$cflags = @("/nologo", "/O2", "/MT", "/W0", "/Zi", "/bigobj", "/std:c11", "/Zc:preprocessor", "/utf-8",
+    "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS")
 $zydisFlags = @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/DZYDIS_DISABLE_ENCODER",
     "/Iexternal\zydis\include", "/Iexternal\zydis\src", "/Iexternal\zydis\dependencies\zycore\include")
 New-Item -ItemType Directory -Force gen\zydis, gen\xbsdb | Out-Null
