@@ -616,6 +616,7 @@ ExitReason Session::run()
         }
     }
     ExitReason reason = s.exit_reason();
+    if (std::optional<std::string> devices = xemu_counters_line()) s.shell->log(*devices);
     if (s.volume) s.shell->log(disc_cache_line(s.volume->cache_stats()));
     s.log_in_flight();
     if (reason == ExitReason::Fatal) s.write_crash();
