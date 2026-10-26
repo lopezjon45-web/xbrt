@@ -38,8 +38,8 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 35 bridge_FscGetCacheSize
     BridgeStatus::NoOp,   // 36 bridge_FscInvalidateIdleBlocks
     BridgeStatus::Full,   // 37 bridge_FscSetCacheSize
-    BridgeStatus::Full,   // 38 bridge_HalClearSoftwareInterrupt
-    BridgeStatus::Full,   // 39 bridge_HalDisableSystemInterrupt
+    BridgeStatus::Stub,   // 38 bridge_HalClearSoftwareInterrupt
+    BridgeStatus::Stub,   // 39 bridge_HalDisableSystemInterrupt
     BridgeStatus::Data,   // 40 kernel data page
     BridgeStatus::Data,   // 41 kernel data page
     BridgeStatus::Data,   // 42 kernel data page
@@ -48,7 +48,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 45 bridge_HalReadSMBusValue
     BridgeStatus::Full,   // 46 bridge_HalReadWritePCISpace
     BridgeStatus::NoOp,   // 47 bridge_HalRegisterShutdownNotification
-    BridgeStatus::Full,   // 48 bridge_HalRequestSoftwareInterrupt
+    BridgeStatus::Stub,   // 48 bridge_HalRequestSoftwareInterrupt
     BridgeStatus::Full,   // 49 bridge_HalReturnToFirmware
     BridgeStatus::Full,   // 50 bridge_HalWriteSMBusValue
     BridgeStatus::Full,   // 51 bridge_InterlockedCompareExchange
@@ -81,13 +81,13 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Stub,   // 78 bridge_IoRemoveShareAccess
     BridgeStatus::Full,   // 79 bridge_IoSetIoCompletion
     BridgeStatus::Stub,   // 80 bridge_IoSetShareAccess
-    BridgeStatus::Full,   // 81 bridge_IoStartNextPacket
-    BridgeStatus::Full,   // 82 bridge_IoStartNextPacketByKey
-    BridgeStatus::Full,   // 83 bridge_IoStartPacket
+    BridgeStatus::Stub,   // 81 bridge_IoStartNextPacket
+    BridgeStatus::Stub,   // 82 bridge_IoStartNextPacketByKey
+    BridgeStatus::Stub,   // 83 bridge_IoStartPacket
     BridgeStatus::Full,   // 84 bridge_IoSynchronousDeviceIoControlRequest
     BridgeStatus::Full,   // 85 bridge_IoSynchronousFsdRequest
     BridgeStatus::Full,   // 86 bridge_IofCallDriver
-    BridgeStatus::Full,   // 87 bridge_IofCompleteRequest
+    BridgeStatus::Stub,   // 87 bridge_IofCompleteRequest
     BridgeStatus::Data,   // 88 kernel data page
     BridgeStatus::Data,   // 89 kernel data page
     BridgeStatus::NoOp,   // 90 bridge_IoDismountVolume
@@ -302,7 +302,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 299 bridge_RtlMultiByteToUnicodeN
     BridgeStatus::Full,   // 300 bridge_RtlMultiByteToUnicodeSize
     BridgeStatus::Full,   // 301 bridge_RtlNtStatusToDosError
-    BridgeStatus::Full,   // 302 bridge_RtlRaiseException
+    BridgeStatus::Partial,   // 302 bridge_RtlRaiseException
     BridgeStatus::Stub,   // 303 bridge_RtlRaiseStatus
     BridgeStatus::Full,   // 304 bridge_RtlTimeFieldsToTime
     BridgeStatus::Full,   // 305 bridge_RtlTimeToTimeFields
@@ -333,8 +333,8 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 330 bridge_READ_PORT_BUFFER_USHORT
     BridgeStatus::Full,   // 331 bridge_READ_PORT_BUFFER_ULONG
     BridgeStatus::Stub,   // 332 bridge_WRITE_PORT_BUFFER_UCHAR
-    BridgeStatus::Full,   // 333 bridge_WRITE_PORT_BUFFER_USHORT
-    BridgeStatus::Full,   // 334 bridge_WRITE_PORT_BUFFER_ULONG
+    BridgeStatus::Stub,   // 333 bridge_WRITE_PORT_BUFFER_USHORT
+    BridgeStatus::Stub,   // 334 bridge_WRITE_PORT_BUFFER_ULONG
     BridgeStatus::Full,   // 335 bridge_XcSHAInit
     BridgeStatus::Full,   // 336 bridge_XcSHAUpdate
     BridgeStatus::Full,   // 337 bridge_XcSHAFinal
@@ -346,12 +346,12 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 343 bridge_XcPKGetKeyLen
     BridgeStatus::Full,   // 344 bridge_XcVerifyPKCS1Signature
     BridgeStatus::Full,   // 345 bridge_XcModExp
-    BridgeStatus::Full,   // 346 bridge_XcDESKeyParity
-    BridgeStatus::Full,   // 347 bridge_XcKeyTable
-    BridgeStatus::Full,   // 348 bridge_XcBlockCrypt
-    BridgeStatus::Full,   // 349 bridge_XcBlockCryptCBC
-    BridgeStatus::Full,   // 350 bridge_XcCryptService
-    BridgeStatus::Full,   // 351 bridge_XcUpdateCrypto
+    BridgeStatus::Stub,   // 346 bridge_XcDESKeyParity
+    BridgeStatus::Stub,   // 347 bridge_XcKeyTable
+    BridgeStatus::Stub,   // 348 bridge_XcBlockCrypt
+    BridgeStatus::Stub,   // 349 bridge_XcBlockCryptCBC
+    BridgeStatus::Stub,   // 350 bridge_XcCryptService
+    BridgeStatus::Stub,   // 351 bridge_XcUpdateCrypto
     BridgeStatus::Full,   // 352 bridge_RtlRip
     BridgeStatus::Data,   // 353 kernel data page
     BridgeStatus::Data,   // 354 kernel data page
@@ -359,7 +359,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Data,   // 356 kernel data page
     BridgeStatus::Data,   // 357 kernel data page
     BridgeStatus::Full,   // 358 bridge_HalIsResetOrShutdownPending
-    BridgeStatus::Full,   // 359 bridge_IoMarkIrpMustComplete
+    BridgeStatus::Stub,   // 359 bridge_IoMarkIrpMustComplete
     BridgeStatus::Full,   // 360 bridge_HalInitiateShutdown
     BridgeStatus::Full,   // 361 bridge_RtlSnprintf
     BridgeStatus::Full,   // 362 bridge_RtlSprintf
