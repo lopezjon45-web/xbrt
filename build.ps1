@@ -155,7 +155,10 @@ $allow = @(
     # cl.exe puts glslang's parser's switch jump table inside yyparse's .text, and dumpbin decodes its 4-byte RVAs as
     # instructions; with some code layouts one decodes as kmovw (AVX-512), which cl never emits for this x64 target.
     # dumpbin /disasm /range over the hit shows the table (run 40402027388).
-    '--allow', '^\?yyparse@@YAHPEAVTParseContext@glslang@@@Z$'
+    '--allow', '^\?yyparse@@YAHPEAVTParseContext@glslang@@@Z$',
+    # Temporary: jump-table data in SPIRV-Cross's HLSL emitter, a linear-sweep false positive (vcvtdq2ps xmm24, run
+    # 40406209575); issue #17. Remove when the gate fix lands.
+    '--allow', '^\?emit_instruction@CompilerHLSL@spirv_cross@@EEAAXAEBUInstruction@2@@Z$'
 )
 & python scripts\isa-gate.py --tool dumpbin --guards '^([a-z0-9]+_fma|__remainder_piby2_fma3(_bdl)?)$' gen\xbrt.exe |
     Tee-Object -Variable guards | Write-Output
