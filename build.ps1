@@ -38,9 +38,12 @@ $cflags = @("/nologo", "/O2", "/MT", "/W0", "/Zi", "/bigobj", "/std:c11", "/Zc:p
     "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS")
 $zydisFlags = @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/DZYDIS_DISABLE_ENCODER",
     "/Iexternal\zydis\include", "/Iexternal\zydis\src", "/Iexternal\zydis\dependencies\zycore\include")
-New-Item -ItemType Directory -Force gen\zydis, gen\xbsdb | Out-Null
+# Zydis and Zycore each have a String.c: one output directory per library, or the second overwrites the first.
+New-Item -ItemType Directory -Force gen\zydis, gen\zycore, gen\xbsdb | Out-Null
 Run cl.exe ($cflags + $zydisFlags + @("/c", "/Fdgen\zydis\", "/Fogen\zydis\") +
-    (Get-ChildItem external\zydis\src\*.c, external\zydis\dependencies\zycore\src\*.c | ForEach-Object { $_.FullName }))
+    (Get-ChildItem external\zydis\src\*.c | ForEach-Object { $_.FullName }))
+Run cl.exe ($cflags + $zydisFlags + @("/c", "/Fdgen\zycore\", "/Fogen\zycore\") +
+    (Get-ChildItem external\zydis\dependencies\zycore\src\*.c | ForEach-Object { $_.FullName }))
 Run cl.exe ($cflags + @("/Iexternal\XbSymbolDatabase\include", "/Iexternal\XbSymbolDatabase\src", "/Iexternal\XbSymbolDatabase\src\OOVPADatabase", "/Iexternal\XbSymbolDatabase\src\lib", "/c", "/Fdgen\xbsdb\", "/Fogen\xbsdb\") +
     (Get-ChildItem external\XbSymbolDatabase\src\lib\*.c, external\XbSymbolDatabase\src\OOVPADatabase\*.c | ForEach-Object { $_.FullName }))
 $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include")
@@ -51,7 +54,7 @@ Compile "gen\desktop" @() @("shell\desktop\main.cpp")
 Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")
 
-$coreObjs = Get-ChildItem gen\core\*.obj, gen\zydis\*.obj, gen\xbsdb\*.obj | ForEach-Object { $_.FullName }
+$coreObjs = Get-ChildItem gen\core\*.obj, gen\zydis\*.obj, gen\zycore\*.obj, gen\xbsdb\*.obj | ForEach-Object { $_.FullName }
 $hostObjs = Get-ChildItem gen\host\*.obj | ForEach-Object { $_.FullName }
 $uwpObjs = Get-ChildItem gen\uwp\*.obj | ForEach-Object { $_.FullName }
 

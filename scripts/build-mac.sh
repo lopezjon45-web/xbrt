@@ -9,11 +9,12 @@ ext=$repo/external
 third=(-DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD -I"$ext/zydis/include" -I"$ext/zydis/dependencies/zycore/include"
        -I"$ext/XbSymbolDatabase/include")
 if [ ! -f "$out/libthird.a" ] || [ "$ext/zydis/src/Decoder.c" -nt "$out/libthird.a" ]; then
+    # Zydis and Zycore each have a String.c, so every object is named by its library too.
     mkdir -p "$out/third"
     for c in "$ext"/zydis/src/*.c "$ext"/zydis/dependencies/zycore/src/*.c "$ext"/XbSymbolDatabase/src/lib/*.c \
              "$ext"/XbSymbolDatabase/src/OOVPADatabase/*.c; do
         clang -O2 -w "${third[@]}" -DZYDIS_DISABLE_ENCODER -I"$ext/zydis/src" -I"$ext/XbSymbolDatabase/src" -I"$ext/XbSymbolDatabase/src/OOVPADatabase" -I"$ext/XbSymbolDatabase/src/lib" \
-            -c "$c" -o "$out/third/$(basename "${c%.c}").o"
+            -c "$c" -o "$out/third/$(basename "$(dirname "$(dirname "$c")")")-$(basename "${c%.c}").o"
     done
     rm -f "$out/libthird.a"
     ar qc "$out/libthird.a" "$out"/third/*.o
