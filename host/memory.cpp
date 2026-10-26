@@ -164,6 +164,31 @@ std::string GuestMemory::identity_check()
     return format("identity ok 0x%08X=0x%08X=0x%08X rwx", user, kContiguousBase + user, kTiledBase + user);
 }
 
+GuestVa GuestMemory::runtime_alloc(uint32_t size, uint32_t alignment, bool exec)
+{
+    if (exec && alignment < kPage) alignment = kPage;
+    if (alignment == 0) alignment = 1;
+    uint32_t start = (runtime_cursor_ + alignment - 1) & ~(alignment - 1);
+    uint32_t end = start + size;
+    if (exec) end = (end + kPage - 1) & ~(kPage - 1);
+    if (end > kRuntimeSize) return {};
+    uint32_t committed = (runtime_cursor_ + kPage - 1) & ~(kPage - 1);
+    uint32_t commit_end = (end + kPage - 1) & ~(kPage - 1);
+    if (commit_end > committed) {
+        void *want = ptr(kRuntimeBase + committed);
+        if (VirtualAlloc2(GetCurrentProcess(), want, commit_end - committed, MEM_COMMIT, PAGE_READWRITE, nullptr, 0) != want)
+            return {};
+    }
+    if (exec) {
+        ULONG old = 0;
+        void *page = ptr(kRuntimeBase + start);
+        if (!VirtualProtectFromApp(page, end - start, PAGE_EXECUTE_READWRITE, &old)) return {};
+        FlushInstructionCache(GetCurrentProcess(), page, end - start);
+    }
+    runtime_cursor_ = end;
+    return {kRuntimeBase + start};
+}
+
 namespace {
 
 constexpr uint32_t kReservationGranularity = 0x10000;
@@ -556,7 +581,7 @@ void GuestMemory::set_no_access(uint32_t base, uint32_t size)
     for (uint32_t va = base & ~(kPage - 1); va < base + size; va += uint32_t(info.RegionSize ? info.RegionSize : kPage)) {
         if (!VirtualQuery(ptr(va), &info, sizeof info)) break;
         if (info.State == MEM_COMMIT) {
-            uint32_t end = std::min<uint64_t>(uint64_t(va) + info.RegionSize, uint64_t(base) + size);
+            uint32_t end = uint32_t(std::min<uint64_t>(uint64_t(va) + info.RegionSize, uint64_t(base) + size));
             protect_pages(va, end - va, PAGE_NOACCESS);
         }
     }
