@@ -43,6 +43,7 @@ std::string g_reserve_error;
 std::wstring g_local_state;
 xbrt::StatusScreen g_screen;
 std::atomic<bool> g_boot_running{false};
+constexpr std::u16string_view kLibrary = u"E:\\Xbox";   // where the hub and the game library service file Xbox games
 
 struct Failure {
     std::string kind, line;
@@ -86,9 +87,11 @@ Link link_from_uri(Uri const &uri, const std::string &source)
     xbrt::Parsed<xbrt::LaunchRequest> request = xbrt::parse_launch(pairs);
     if (!request) return {std::nullopt, "link FAIL " + request.error() + " (" + source + ")", LineColour::Red};
     const std::u16string &disc = request->disc_path;
-    std::string what = request->survey_folder.empty() ? utf8(disc.substr(disc.find_last_of(u'\\') + 1))
-                                                      : "survey " + utf8(request->survey_folder);
-    std::string line = "link " + to_string(uri.SchemeName()) + ": " + what + " (" + source + ")";
+    std::string what = !request->survey_folder.empty() ? "survey " + utf8(request->survey_folder)
+                       : !request->dir_path.empty()    ? "dir " + utf8(request->dir_path)
+                                                       : utf8(disc.substr(disc.find_last_of(u'\\') + 1));
+    std::string line = "link " + to_string(uri.SchemeName()) + ": " + what + " (" + source + ")" +
+                       (request->home.empty() ? ", home none (LocalState)" : ", home " + utf8(request->home));
     return {std::move(*request), line, LineColour::Green};
 }
 
@@ -110,8 +113,7 @@ Link resolve_link(IActivatedEventArgs const &args)
     try {
         if (protocol) return link_from_uri(args.as<ProtocolActivatedEventArgs>().Uri(), source);
         std::optional<std::string> text = read_launch_txt();
-        if (!text)
-            return {std::nullopt, "link none: started without a link, running the disc-free stages", LineColour::White};
+        if (!text) return {std::nullopt, "link none: started without a link, listing " + utf8(kLibrary), LineColour::White};
         return link_from_uri(Uri(to_hstring(*text)), source);
     } catch (hresult_error const &e) {
         char code[32];
@@ -191,6 +193,26 @@ void run_probes()
     });
 }
 
+// Started from the tile with no link: the game list from E:\Xbox, so the app is usable without the hub
+// (INTEGRATION.md section 1). Written to LocalState\library.txt too, so console scripts take names from it.
+void list_library()
+{
+    std::string error;
+    std::vector<std::u16string> discs = xbrt::list_disc_files(kLibrary, error);
+    if (!error.empty()) {
+        report("library", "library FAIL " + utf8(kLibrary) + ": " + error, LineColour::Red);
+        return;
+    }
+    report("library", "library " + utf8(kLibrary) + ": " + std::to_string(discs.size()) + " images", LineColour::Green);
+    FILE *f = _wfopen((g_local_state + L"\\library.txt").c_str(), L"wb");
+    for (const std::u16string &d : discs) {
+        std::string name = utf8(d.substr(d.find_last_of(u'\\') + 1));
+        g_screen.add("  " + name, LineColour::White);
+        if (f) fprintf(f, "%s\n", utf8(d).c_str());
+    }
+    if (f) fclose(f);
+}
+
 void boot(Link link)
 {
     if (g_memory) {
@@ -207,6 +229,7 @@ void boot(Link link)
     }
 
     report("link", link.line, link.colour);
+    if (!link.request) list_library();
     if (link.request && !link.request->survey_folder.empty()) {
         survey(*link.request);
     } else if (link.request) {

@@ -72,12 +72,29 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Sh
     };
     Session s;
     std::string error;
+    char line[256];
+    if (!request.dir_path.empty()) {
+        // An extracted disc: default.xbe is a plain file under the directory, and there is no index to build.
+        std::u16string dir = request.dir_path;
+        if (dir.size() < 3 || dir[1] != u':') dir = shell.data_root() + u"\\" + dir;
+        std::u16string file = dir + request.xbe;
+        std::unique_ptr<Source> xbe_file = shell.open_disc(file, error);
+        if (!xbe_file) return failed(BootStage::OpenDisc, ascii_path(file) + ": " + error);
+        std::vector<uint8_t> bytes(size_t(xbe_file->size()));
+        if (!xbe_file->read_at(0, bytes)) return failed(BootStage::ReadXbe, ascii_path(file) + ": read failed");
+        snprintf(line, sizeof line, "disc %s (extracted)", ascii_path(dir).c_str());
+        shell.stage(BootStage::OpenDisc, line);
+        Parsed<XbeImage> xbe = parse_xbe(bytes);
+        if (!xbe) return failed(BootStage::ReadXbe, xbe.error());
+        s.xbe_ = std::move(*xbe);
+        shell.stage(BootStage::ReadXbe, "xbe " + xbe_summary_line(s.xbe_));
+        return s;
+    }
     s.image_ = shell.open_disc(request.disc_path, error);
     if (!s.image_) return failed(BootStage::OpenDisc, ascii_path(request.disc_path) + ": " + error);
     Parsed<DiscIndex> index = DiscIndex::open(*s.image_);
     if (!index) return failed(BootStage::OpenDisc, index.error());
     s.disc_ = std::move(*index);
-    char line[256];
     snprintf(line, sizeof line, "disc %s (%zu entries)", ascii_path(request.disc_path).c_str(), s.disc_.all().size());
     shell.stage(BootStage::OpenDisc, line);
 

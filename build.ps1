@@ -21,8 +21,11 @@ Note "version: $pkgVersion"
 # No /guard:cf: the runtime calls code it writes below 4 GB. core, host and tests compile with the desktop API family
 # so that VirtualAlloc2 and AddVectoredExceptionHandler are declared; the imports still come from WindowsApp.lib and
 # onecore.lib.
-$common = @("/nologo", "/std:c++latest", "/permissive-", "/EHsc", "/O2", "/MT", "/W3", "/Zi", "/bigobj",
-    "/DUNICODE", "/D_UNICODE", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS", "/I$root")
+# _USE_STD_VECTOR_ALGORITHMS=0: the MSVC STL otherwise links its AVX2 vector-algorithm bodies (dispatched at run time,
+# but every one would need an ISA-gate allow). The UCRT's own dispatched bodies remain and are allowed by name.
+$common = @("/nologo", "/std:c++latest", "/permissive-", "/EHsc", "/O2", "/MT", "/W3", "/Zi", "/bigobj", "/utf-8",
+    "/DUNICODE", "/D_UNICODE", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS",
+    "/D_USE_STD_VECTOR_ALGORITHMS=0", "/I$root")
 $cppwinrt = Join-Path $env:WindowsSdkDir "Include\$env:WindowsSDKVersion\cppwinrt"
 $app = @("/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP", "/I$cppwinrt")
 
@@ -65,15 +68,11 @@ Run gen\xbrt_tests.exe @()
 # reports that feature (the probe's list plus the UCRT strnlen helpers route 2's gate allowed, all behind
 # __isa_available or __use_fma3_lib, checked against the disassembly on the Mac; Jaguar reports neither). The UCRT's
 # wmemchr and wmemcmp enter their AVX2 loop only when _Avx2WmemEnabled is set (dumpbin on windows-2022, run 40271103751).
-# STL lambdas inside __std_ helpers decorate with a doubled backtick, hence .{1,2}.
 $allow = @(
     '--allow', '^(strnlen|wcslen|wcsnlen|wmemchr|wmemcmp)$',
     '--allow', '^common_strnlen(_simd)?<',
     '--allow', '^\?(compare_equals|compute_byte_mask)@\?\$__crt_simd_(pack_)?traits@',
-    '--allow', '^log10$',
-    '--allow', '^.{1,2}anonymous namespace.::__std_',
-    '--allow', '^__std_[a-z_]+(_[1248])?$',
-    '--allow', '_(Minmax|Find|Count)_traits_'
+    '--allow', '^log10$'
 )
 # Windows PowerShell's Tee-Object and Set-Content write UTF-16 and CRLF; the Mac reads these files, so they are
 # written as UTF-8 with LF through .NET.

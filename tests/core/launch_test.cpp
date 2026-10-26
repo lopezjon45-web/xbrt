@@ -66,8 +66,8 @@ TEST(parse_launch_names_the_field_it_rejects)
 {
     CHECK_CONTAINS(error_of({{u"disc", kGame}}), "launchOnExit");
     CHECK_CONTAINS(error_of({{u"disc", kGame}, {u"launchOnExit", u""}}), "launchOnExit");
-    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}}), "disc: missing");
-    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", kGame}, {u"survey", u"E:\\Xbox"}}), "disc and survey");
+    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}}), "exactly one");
+    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", kGame}, {u"survey", u"E:\\Xbox"}}), "exactly one");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", u"Xbox\\game.iso"}}), "disc: \"Xbox\\game.iso\" is not an absolute");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", u"\\\\server\\game.iso"}}), "disc:");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", u"E:\\Xbox\\game.zip"}}), "not an .iso or .xiso");
@@ -82,8 +82,8 @@ TEST(parse_launch_names_the_field_it_rejects)
 
 TEST(return_link_appends_the_outcome_to_a_bare_scheme)
 {
-    CHECK_STR(narrow(xbrt::return_link(u"decomp:", "ok", "", "")), "decomp:?result=ok");
-    CHECK_STR(narrow(xbrt::return_link(u"decomp:?", "ok", "", "")), "decomp:?result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:", "ok", "", "")), "decomp:?from=xbrt&result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:?", "ok", "", "")), "decomp:?from=xbrt&result=ok");
 }
 
 TEST(return_link_joins_a_return_uri_that_already_carries_a_query)
@@ -96,5 +96,29 @@ TEST(return_link_joins_a_return_uri_that_already_carries_a_query)
 TEST(return_link_escapes_every_byte_outside_the_rfc3986_unreserved_set)
 {
     CHECK_STR(narrow(xbrt::return_link(u"decomp:", "error", "Kernel", "AZaz09-._~ !&=?%+/'\xc3\xa9")),
-              "decomp:?result=error&kind=Kernel&missing=AZaz09-._~%20%21%26%3D%3F%25%2B%2F%27%C3%A9");
+              "decomp:?from=xbrt&result=error&kind=Kernel&missing=AZaz09-._~%20%21%26%3D%3F%25%2B%2F%27%C3%A9");
+}
+
+TEST(parse_launch_takes_home_and_an_extracted_disc_directory)
+{
+    xbrt::Parsed<xbrt::LaunchRequest> r =
+        xbrt::parse_launch({{u"launchOnExit", kBack}, {u"disc", kGame}, {u"home", u"E:\\Game Vault"}});
+    CHECK(r.has_value());
+    if (r) CHECK_STR(narrow(r->home), "E:\\Game Vault");
+    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", kGame}, {u"home", u"saves"}}), "home:");
+
+    xbrt::Parsed<xbrt::LaunchRequest> d = xbrt::parse_launch({{u"launchOnExit", kBack}, {u"dir", u"disc"}});
+    CHECK(d.has_value());
+    if (d) {
+        CHECK_STR(narrow(d->dir_path), "disc");
+        CHECK(d->disc_path.empty());
+    }
+    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"dir", u"..\\other"}}), "dir:");
+    CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"dir", u"disc"}, {u"disc", kGame}}), "exactly one");
+}
+
+TEST(return_link_keeps_a_from_the_hub_already_chose)
+{
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:?from=xboxrt", "ok", "", "")), "decomp:?from=xboxrt&result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"gamevault:", "ok", "", "")), "gamevault:?from=xbrt&result=ok");
 }

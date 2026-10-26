@@ -53,9 +53,11 @@ void append_escaped(std::u16string &out, std::string_view utf8)
 
 Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs)
 {
-    std::optional<std::u16string> disc, survey, back, xbe, fps, trace;
+    std::optional<std::u16string> disc, dir, survey, back, xbe, fps, trace, home;
     for (const auto &[name, value] : pairs) {
         if (name == u"disc") disc = value;
+        else if (name == u"dir") dir = value;
+        else if (name == u"home") home = value;
         else if (name == u"survey") survey = value;
         else if (name == u"launchOnExit") back = value;
         else if (name == u"xbe") xbe = value;
@@ -67,16 +69,24 @@ Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs)
     if (!back || back->empty()) return std::unexpected("launchOnExit: missing, so there is no way back to the hub");
     r.return_uri = std::move(*back);
 
-    if (disc && survey) return std::unexpected("disc and survey: a link names one or the other");
-    if (!disc && !survey) return std::unexpected("disc: missing, and no survey either");
+    if (int(disc.has_value()) + int(dir.has_value()) + int(survey.has_value()) != 1)
+        return std::unexpected("disc, dir or survey: a link names exactly one of them");
     if (disc) {
         if (!drive_absolute(*disc)) return bad("disc", *disc, "is not an absolute path on a drive");
         if (!ends_with_ci(*disc, u".iso") && !ends_with_ci(*disc, u".xiso"))
             return bad("disc", *disc, "is not an .iso or .xiso");
         r.disc_path = std::move(*disc);
+    } else if (dir) {
+        if (dir->empty() || dir->find(u"..") != std::u16string::npos)
+            return bad("dir", *dir, "is empty or climbs out of its folder");
+        r.dir_path = std::move(*dir);
     } else {
         if (!drive_absolute(*survey)) return bad("survey", *survey, "is not an absolute path on a drive");
         r.survey_folder = std::move(*survey);
+    }
+    if (home) {
+        if (!drive_absolute(*home)) return bad("home", *home, "is not an absolute path on a drive");
+        r.home = std::move(*home);
     }
 
     if (xbe) {
@@ -101,7 +111,17 @@ std::u16string return_link(std::u16string_view return_uri, std::string_view resu
                            std::string_view missing)
 {
     std::u16string out(return_uri);
-    if (!out.ends_with(u'?') && !out.ends_with(u'&')) out += out.find(u'?') == std::u16string::npos ? u'?' : u'&';
+    auto separate = [&out] {
+        if (!out.ends_with(u'?') && !out.ends_with(u'&')) out += out.find(u'?') == std::u16string::npos ? u'?' : u'&';
+    };
+    size_t query = out.find(u'?');
+    bool has_from = query != std::u16string::npos &&
+                    (out.find(u"?from=", query) != std::u16string::npos || out.find(u"&from=", query) != std::u16string::npos);
+    if (!has_from) {
+        separate();
+        out += u"from=xbrt";
+    }
+    separate();
     out += u"result=";
     append_escaped(out, result);
     if (result != "ok") {

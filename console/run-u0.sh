@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-u0.sh <release dir> [--disc "E:\Xbox\<name>.iso" | --survey "E:\Xbox"] [--bisect] [--deadline N]
+# run-u0.sh <release dir> [--disc-match <text> | --survey "E:\Xbox" | --upload-xbe <default.xbe>] [--bisect] [--deadline N]
 #
 # <release dir> is a download of one CI prerelease (gh release download build-N -D <dir>) holding the appx files and
 # SHA256SUMS.txt. Acts on the console only while ~/mesa-one-s/xbox/console-free reads exactly "xbrt". Never
@@ -14,16 +14,21 @@ MAIN_NAME=LopezJon.XboxRuntime
 DEADLINE=90
 DRY_RUN=${DRY_RUN:-0}
 DISC=""
+DISC_MATCH=""
 SURVEY=""
+UPLOAD_XBE=""
 BISECT=0
+LIBRARY=/Users/jonlopez/mesa-one-s/xbrt-local/library.txt
+DRIVE_MOUNT_FILE=/Users/jonlopez/mesa-one-s/xbrt-local/drive-mount.txt   # the drive's Xbox folder when it is on the Mac; local only
 
-[ $# -ge 1 ] || die "usage: run-u0.sh <release dir> [--disc \"E:\\Xbox\\<name>.iso\" | --survey \"E:\\Xbox\"] [--bisect] [--deadline N]"
+[ $# -ge 1 ] || die "usage: run-u0.sh <release dir> [--disc-match <text> | --survey \"E:\\Xbox\" | --upload-xbe <default.xbe>] [--bisect] [--deadline N]"
 ART=$(cd "$1" && pwd)
 shift
 while [ $# -gt 0 ]; do
     case $1 in
-        --disc) DISC=$2; shift ;;
+        --disc-match) DISC_MATCH=$2; shift ;;
         --survey) SURVEY=$2; shift ;;
+        --upload-xbe) UPLOAD_XBE=$2; shift ;;
         --bisect) BISECT=1 ;;
         --deadline) DEADLINE=$2; shift ;;
         *) die "unknown option $1" ;;
@@ -102,11 +107,31 @@ stop_once() {
     esac
 }
 
-launch_link() {
-    if [ -n "$SURVEY" ]; then
-        printf 'xboxrt:?survey=%s&launchOnExit=%s' "$(urlenc "$SURVEY")" "$(urlenc 'decomp:?from=xboxrt')"
+# resolve_disc: the one drive listing entry containing DISC_MATCH; the listing comes from the app or the mounted drive
+resolve_disc() {
+    local listing hits
+    if [ -f "$LIBRARY" ]; then
+        listing=$(cat "$LIBRARY")
+    elif [ -s "$DRIVE_MOUNT_FILE" ] && [ -d "$(cat "$DRIVE_MOUNT_FILE")" ]; then
+        listing=$(find "$(cat "$DRIVE_MOUNT_FILE")" -maxdepth 1 \( -iname '*.iso' -o -iname '*.xiso' \) -exec basename {} \; | sed 's|^|E:\\Xbox\\|')
     else
-        printf 'xboxrt:?disc=%s&launchOnExit=%s' "$(urlenc "$DISC")" "$(urlenc 'decomp:?from=xboxrt')"
+        die "no drive listing: start the app once without a link (it writes LocalState\\library.txt, pulled to $LIBRARY) or mount the drive named in $DRIVE_MOUNT_FILE"
+    fi
+    hits=$(printf '%s\n' "$listing" | grep -i -F -- "$DISC_MATCH" || true)
+    [ "$(printf '%s\n' "$hits" | grep -c .)" = 1 ] || die "--disc-match '$DISC_MATCH' matches $(printf '%s\n' "$hits" | grep -c .) entries, need exactly one:
+$hits"
+    DISC=$hits
+}
+
+# launch_link: the hub's link for the disc, the extracted disc or the survey folder, each value escaped once
+launch_link() {
+    local back; back=$(urlenc 'decomp:')
+    if [ -n "$SURVEY" ]; then
+        printf 'xboxrt:?survey=%s&launchOnExit=%s' "$(urlenc "$SURVEY")" "$back"
+    elif [ -n "$UPLOAD_XBE" ]; then
+        printf 'xboxrt:?dir=disc&launchOnExit=%s' "$back"
+    else
+        printf 'xboxrt:?disc=%s&home=%s&launchOnExit=%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$back"
     fi
 }
 
@@ -135,13 +160,15 @@ version=$(manifest_field "$main_appx" Version)
 deps=$(unzip -p "$main_appx" AppxManifest.xml | grep -o '<PackageDependency [^>]*' || true)
 [ -z "$deps" ] || die "$main_appx depends on framework packages this script does not install: $deps"
 say "package: $(basename "$main_appx") $MAIN_NAME $version, no framework dependencies"
-[ -z "$DISC" ] || [ -z "$SURVEY" ] || die "--disc and --survey are one or the other"
-[ -z "$DISC$SURVEY" ] || say "link: $(launch_link)"
+[ "$(printf '%s' "${DISC_MATCH:+1}${SURVEY:+1}${UPLOAD_XBE:+1}" | wc -c | tr -d ' ')" -le 1 ] || die "--disc-match, --survey and --upload-xbe are one or the other"
+[ -z "$DISC_MATCH" ] || resolve_disc
+[ -z "$UPLOAD_XBE" ] || [ -f "$UPLOAD_XBE" ] || die "$UPLOAD_XBE is not a file"
+[ -z "$DISC$SURVEY$UPLOAD_XBE" ] || say "link: $(launch_link)"
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="/Users/jonlopez/mesa-one-s/xbrt-results/$STAMP"
 if lease_ok; then say "lease: xbrt"; else say "lease: $LEASE does not read \"xbrt\""; fi
 if [ "$DRY_RUN" = 1 ]; then
-    say "dry run: would install $MAIN_NAME $version$([ "$BISECT" = 1 ] && printf ' and the six bisect identities'), write launch.txt$([ -z "$DISC$SURVEY" ] && printf ' (none: no --disc or --survey)'), start, wait for END (deadline $DEADLINE s), screenshot, stop, save to $OUT/"
+    say "dry run: would install $MAIN_NAME $version$([ "$BISECT" = 1 ] && printf ' and the six bisect identities'), write launch.txt$([ -z "$DISC$SURVEY$UPLOAD_XBE" ] && printf ' (none: no --disc-match, --survey or --upload-xbe)'), start, wait for END (deadline $DEADLINE s), screenshot, stop, save to $OUT/"
     exit 0
 fi
 
@@ -165,7 +192,11 @@ stop_once
 sleep 3
 get_file "$P_FULL" '\LocalState' run.txt "$OUT/warmup-run.txt" && say "saved the warm-up's run.txt ($(wc -l < "$OUT/warmup-run.txt" | tr -d ' ') lines)"
 del_file "$P_FULL" '\LocalState' run.txt || true
-if [ -n "$DISC$SURVEY" ]; then
+if [ -n "$UPLOAD_XBE" ]; then
+    lease_ok || die "the lease was taken back before the upload"
+    put_file "$P_FULL" '\LocalState\disc' "$UPLOAD_XBE" default.xbe && say "default.xbe uploaded into LocalState\disc ($(shasum -a 256 "$UPLOAD_XBE" | cut -c1-12))"
+fi
+if [ -n "$DISC$SURVEY$UPLOAD_XBE" ]; then
     printf '%s\n' "$(launch_link)" > "$OUT/launch.txt"
     put_file "$P_FULL" '\LocalState' "$OUT/launch.txt" launch.txt && say "launch.txt written"
 fi
@@ -178,6 +209,9 @@ sleep 2
 get_file "$P_FULL" '\LocalState' run.txt "$OUT/run.txt" || say "no run.txt on the console"
 get_file "$P_FULL" '\LocalState' shell.txt "$OUT/shell.txt" || true
 [ -z "$SURVEY" ] || get_file "$P_FULL" '\LocalState' survey.tsv "$OUT/survey.tsv" || say "no survey.tsv on the console"
+if get_file "$P_FULL" '\LocalState' library.txt "$OUT/library.txt"; then
+    mkdir -p "$(dirname "$LIBRARY")" && cp "$OUT/library.txt" "$LIBRARY" && say "drive listing saved to $LIBRARY ($(grep -c . "$LIBRARY") images)"
+fi
 
 if [ "$BISECT" = 1 ]; then
     say "== bisect ladder"
