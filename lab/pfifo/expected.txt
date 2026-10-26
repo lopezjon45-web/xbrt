@@ -1,0 +1,5 @@
+lab pfifo start
+lab pfifo channel up
+lab pfifo 20000 kicks drained
+lab pfifo last method applied
+lab pfifo ok
