@@ -1,4 +1,4 @@
-# The ISA gate's decoder: python -m pip install --only-binary :all: --require-hashes -r scripts/isa-gate-requirements.txt
+# The ISA gate's decoder: python -m pip install --only-binary=:all: --require-hashes -r scripts/isa-gate-requirements.txt
 # Wheels for windows x64 (CI), linux x64 (the lab job) and macOS (the Mac's gate venv).
 capstone==5.0.9 \
     --hash=sha256:732cedbbb56d42e723f14d7af6387f1454194a820b4b96b56d1e53f865ef85d0 \
