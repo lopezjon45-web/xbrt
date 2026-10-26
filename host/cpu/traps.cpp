@@ -124,34 +124,20 @@ bool rdtsc_site(uint32_t eip)
     return g_cpu->rdtsc_sites.count(eip) != 0;
 }
 
-struct DeviceScope {
-    ThreadBlock *tb;
-    explicit DeviceScope(ThreadBlock *b) : tb(b) { tb->host.mmio_in_progress++; }
-    ~DeviceScope() { tb->host.mmio_in_progress--; }
-    DeviceScope(const DeviceScope &) = delete;
-    DeviceScope &operator=(const DeviceScope &) = delete;
-};
-
 struct Access {
     Trap &t;
     bool fs;
     uint32_t read(uint32_t addr, unsigned size)
     {
         if (fs && addr < kFsWindow) return load(reinterpret_cast<uint8_t *>(t.tb) + addr, size);
-        if (const MmioMap *m = mmio_at(addr)) {
-            DeviceScope scope(t.tb);
-            return m->device->read({addr}, size);
-        }
+        if (const MmioMap *m = mmio_at(addr)) return m->device->read({addr}, size);
         if (!readable(addr, size)) fatal_trap(t.tb, format("read of unmapped 0x%08X at '%s'", addr, disasm(t).c_str()));
         return load(host(addr), size);
     }
     void write(uint32_t addr, unsigned size, uint32_t v)
     {
         if (fs && addr < kFsWindow) return store(reinterpret_cast<uint8_t *>(t.tb) + addr, size, v);
-        if (const MmioMap *m = mmio_at(addr)) {
-            DeviceScope scope(t.tb);
-            return m->device->write({addr}, size, v);
-        }
+        if (const MmioMap *m = mmio_at(addr)) return m->device->write({addr}, size, v);
         if (!readable(addr, size)) fatal_trap(t.tb, format("write to unmapped 0x%08X at '%s'", addr, disasm(t).c_str()));
         store(host(addr), size, v);
     }
@@ -609,7 +595,6 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
     _mm_setcsr(kAbiMxcsr);
     memcpy(&tb->trap.ctx, c, sizeof(CONTEXT));
     memcpy(&tb->trap.rec, e->ExceptionRecord, sizeof(EXCEPTION_RECORD));
-    tb->host.in_trap = 1;
     uint64_t sp = (tb->host.host_rsp - 0x200) & ~uint64_t(0xF);
     c->Rip = reinterpret_cast<uint64_t>(&xbrt_trap_landing);
     c->Rcx = reinterpret_cast<uint64_t>(tb);
@@ -623,8 +608,10 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
     return EXCEPTION_CONTINUE_EXECUTION;
 }
 
+// in_trap is set here, not in the VEH: a thread suspended on its way in from NtContinue holds nothing yet.
 extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
 {
+    tb->host.in_trap = 1;
     if (tb->host.depth == 1) tb->host.base_rsp = tb->host.host_rsp;
     CONTEXT &c = tb->trap.ctx;
     const EXCEPTION_RECORD &rec = tb->trap.rec;

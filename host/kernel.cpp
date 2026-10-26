@@ -523,9 +523,9 @@ uint32_t xbox_NtSuspendThread(HANDLE thread, uint32_t *previous)
     case xbrt::SuspendResult::Suspended:
         if (previous) *previous = count;
         return xbrt::kStatusSuccess;
-    case xbrt::SuspendResult::InsideDevice:
+    case xbrt::SuspendResult::InsideTrap:
         xbrt::report_missing({xbrt::MissingKind::Hang, true,
-                              "NtSuspendThread: the thread stayed inside a device register access for 10 ms", {}, "",
+                              "NtSuspendThread: the thread stayed inside the trap router (a device register or port access) for 10 ms", {}, "",
                               GetCurrentThreadId()});
         return xbrt::kStatusUnsuccessful;
     case xbrt::SuspendResult::Failed: break;

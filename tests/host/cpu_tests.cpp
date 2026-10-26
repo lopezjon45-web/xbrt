@@ -526,8 +526,8 @@ struct Tests {
                 detail};
     }
 
-    // Defect: a thread left suspended inside an MMIO access, holding the device's lock, or one never suspended once
-    // it is outside.
+    // Defect: a thread left suspended inside an MMIO access or anywhere else in the trap landing, holding the device's
+    // lock or routes_lock, or one never suspended once it is outside.
     Result suspend_scope()
     {
         struct Device final : MmioDevice {
@@ -571,8 +571,37 @@ struct Tests {
         DWORD exited = WaitForSingleObject(h, 5000);
         std::string detail = format("parked=%lu inside=%d after %lld ms, outside=%d previous=%u reads while suspended=%u exited=%lu",
                                     parked, int(inside), static_cast<long long>(waited), int(outside), previous, after - before, exited);
-        return {parked == WAIT_OBJECT_0 && inside == SuspendResult::InsideDevice && waited >= 10 && outside == SuspendResult::Suspended &&
-                    previous == 0 && after == before && exited == WAIT_OBJECT_0,
+        bool mmio_ok = parked == WAIT_OBJECT_0 && inside == SuspendResult::InsideTrap && waited >= 10 &&
+                       outside == SuspendResult::Suspended && previous == 0 && after == before && exited == WAIT_OBJECT_0;
+
+        // A port access runs in the landing too, which takes routes_lock (mmio_at, port_at) on every trap.
+        struct Port final : PortDevice {
+            HANDLE parked = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            HANDLE release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            uint32_t in(uint16_t, unsigned) override
+            {
+                SetEvent(parked);
+                WaitForSingleObject(release, 10000);
+                return 0;
+            }
+            void out(uint16_t, unsigned, uint32_t) override {}
+        };
+        static Port port;
+        cpu.map_ports({0x80F0, 4}, port);
+        P q;
+        q.mov_edx_imm(0x80F0);
+        q.raw({0xED});   // in eax, dx
+        q.ret();
+        GuestThread &u = GuestThread::spawn({code.put(q.b)}, std::span<const uint32_t>{}, SpawnOptions{0x20000, 8, false, 0});
+        HANDLE uh = detail::thread_handle(u);
+        DWORD port_parked = WaitForSingleObject(port.parked, 5000);
+        uint32_t port_previous = 0;
+        SuspendResult in_landing = suspend_outside_devices(uh, &port_previous);
+        if (in_landing == SuspendResult::Suspended) ResumeThread(uh);
+        SetEvent(port.release);
+        DWORD port_exited = WaitForSingleObject(uh, 5000);
+        detail += format("; port: parked=%lu inside=%d exited=%lu", port_parked, int(in_landing), port_exited);
+        return {mmio_ok && port_parked == WAIT_OBJECT_0 && in_landing == SuspendResult::InsideTrap && port_exited == WAIT_OBJECT_0,
                 detail};
     }
 

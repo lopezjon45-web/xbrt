@@ -296,12 +296,12 @@ SuspendResult suspend_outside_devices(void *thread, uint32_t *previous)
         CONTEXT context{};
         context.ContextFlags = CONTEXT_CONTROL;
         GetThreadContext(thread, &context);
-        if (!tb || *static_cast<volatile uint32_t *>(&tb->host.mmio_in_progress) == 0) {
+        if (!tb || *static_cast<volatile uint32_t *>(&tb->host.in_trap) == 0) {
             *previous = count;
             return SuspendResult::Suspended;
         }
         ResumeThread(thread);
-        if (std::chrono::steady_clock::now() >= deadline) return SuspendResult::InsideDevice;
+        if (std::chrono::steady_clock::now() >= deadline) return SuspendResult::InsideTrap;
         SwitchToThread();
     }
 }
