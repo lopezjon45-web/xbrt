@@ -418,7 +418,7 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
 void on_fatal(const TrapReport &r) noexcept
 {
     Session::State &s = *g_state;
-    s.record_stop({MissingKind::Instruction, true, r.what, r.where, s.symbols.describe(r.where, s.xbe), GetCurrentThreadId(),
+    s.record_stop({r.device_register ? MissingKind::DeviceRegister : MissingKind::Instruction, true, r.what, r.where, s.symbols.describe(r.where, s.xbe), GetCurrentThreadId(),
                    thread_label(GuestThread::current_if_any())},
                   &r);
 }

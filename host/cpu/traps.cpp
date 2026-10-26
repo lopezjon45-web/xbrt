@@ -1,3 +1,4 @@
+#include "core/devices.h"
 #include "host/cpu/cpu_internal.h"
 
 #include <Zydis/Zydis.h>
@@ -456,6 +457,10 @@ uint32_t route(Trap &t)
         if (t.addr >= kKernelImageBase && t.addr < kKernelImageEnd)
             fatal_trap(t.tb, format("fault on 0x%08X (kernel image) at '%s'", uint32_t(t.addr), disasm(t).c_str()));
         if (is_segment_load(t)) fatal_trap(t.tb, format("selector load '%s'", disasm(t).c_str()));
+        if (const DeviceAperture *d = device_aperture_at(uint32_t(t.addr)))
+            fatal_trap(t.tb, format("%s register 0x%08X %s: not modelled ('%s')", std::string(d->name).c_str(), uint32_t(t.addr),
+                                    t.write ? "write" : "read", disasm(t).c_str()),
+                       true);
         fatal_trap(t.tb, format("%s fault on 0x%08X at '%s' (ss=0x%X cs=0x%X)", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str(),
                                 t.c.SegSs, t.c.SegCs));
     }
@@ -518,11 +523,12 @@ uint32_t route(Trap &t)
 
 }  // namespace
 
-[[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what)
+[[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what, bool device_register)
 {
     CONTEXT &c = tb->trap.ctx;
     TrapReport r{};
     r.what = what;
+    r.device_register = device_register;
     r.where = {uint32_t(c.Rip)};
     r.thread = tb->host.index;
     if (readable(c.Rip, r.bytes_at_eip.size())) memcpy(r.bytes_at_eip.data(), host(uint32_t(c.Rip)), r.bytes_at_eip.size());

@@ -91,6 +91,7 @@ struct CpuOptions {
 // What a stop-kind trap leaves behind for crash.txt and the red screen (design.md "Visible failure").
 struct TrapReport {
     std::string what;          // "cannot emulate 'out dx,eax' (port 0x80C4)", "fault on 0xC0000000 (page tables)"
+    bool device_register;      // an access to a device aperture no model serves
     GuestVa where;
     uint32_t thread;
     std::array<uint8_t, 32> bytes_at_eip;

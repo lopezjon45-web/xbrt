@@ -148,7 +148,7 @@ uint64_t guest_tsc_now();
 
 LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e);
 extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb);
-[[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what);
+[[noreturn]] void fatal_trap(ThreadBlock *tb, const std::string &what, bool device_register = false);
 
 bool promote(const PatchSite &site, bool learned);
 
