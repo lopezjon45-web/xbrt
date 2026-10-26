@@ -5,7 +5,7 @@
 """
 import sys
 
-REQUIRED = ["DbgPrint", "KeQuerySystemTime", "NtCreateFile", "NtReadFile", "stub", "noop", "unbridged"]
+REQUIRED = ["DbgPrint", "KeQuerySystemTime", "NtCreateFile", "NtReadFile", "stub", "noop", "unbridged", "usb-pad"]
 
 
 def main(path):
