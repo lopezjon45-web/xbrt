@@ -85,6 +85,9 @@ int xbox_FramebufferKeyDown(int) { return 0; }
 // No APU: its interrupt line is never up.
 int xbox_ApuIrqPending(void) { return 0; }
 
+// No NV2A: its interrupt line is never up either.
+int xbox_Nv2aIrqPending(void) { return 0; }
+
 // No push-buffer executor: nothing is queued behind the title, and no NV2A page is modelled.
 uint32_t xbox_Nv2aBacklog(void) { return 0; }
 int xbox_Nv2aRegIsHooked(uint32_t) { return 0; }
