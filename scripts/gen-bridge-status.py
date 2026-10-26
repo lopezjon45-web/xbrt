@@ -14,8 +14,10 @@ Classes, from bridge_for_ordinal(), kernel_data_va_for_ordinal() and each bridge
     none     no case in either switch (the thunk slot gets the "missing" handler at run time)
     data     a data export the fork serves from its kernel data page (KeTickCount, XboxHardwareInfo, ...)
     stub     bridge_generic_stub, or a body that only pops its arguments and writes constants into g_eax/g_edx:
-             no call to anything but logging and argument macros, no write to guest memory; a body whose own
-             comment says "stub" and calls nothing in layer A counts too
+             no call to anything but logging, argument macros and idle layer-A functions, no write to guest
+             memory; a body whose own comment says "stub" and calls nothing in layer A counts too. An idle
+             layer-A function is an xbox_* function in the bridge's folder whose body only casts its
+             arguments to void or returns a constant: calling it does nothing
     partial  a body that calls a real implementation but carries a TODO, "not implemented", "not supported",
              "unsupported" or "ignored" note of its own
     noop     a stub listed in scripts/kernel-noop-exports.tsv
@@ -66,8 +68,25 @@ def strip_comments(body):
 CONSTANT = re.compile(r"^\s*\(?\s*(0x[0-9A-Fa-f]+|\d+|[A-Z][A-Z0-9_]+|TRUE|FALSE)\s*\)?\s*$")
 
 
-def does_work(code):
-    calls = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code)) - LOG_CALLS
+def idle_layer_a(folder):
+    """The xbox_* functions in `folder` whose bodies do nothing: argument casts to void and constant returns only."""
+    idle = set()
+    for path in sorted(pathlib.Path(folder).glob("*.c")):
+        src = path.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"^[A-Za-z_][\w \t*]*?\b(xbox_\w+)\s*\([^;{]*?\)\s*\{", src, re.M):
+            depth, i = 1, m.end()
+            while depth:
+                depth += {"{": 1, "}": -1}.get(src[i], 0)
+                i += 1
+            rest = re.sub(r"\(void\)\s*\w+\s*;", "", strip_comments(src[m.end():i - 1]))
+            rest = re.sub(r"return\s+\(?\s*(0x[0-9A-Fa-f]+|\d+|[A-Z][A-Z0-9_]+|TRUE|FALSE)\s*\)?\s*;", "", rest)
+            if not rest.strip():
+                idle.add(m.group(1))
+    return idle
+
+
+def does_work(code, idle):
+    calls = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code)) - LOG_CALLS - idle
     if {c for c in calls if not c.isupper()}:
         return True
     if re.search(r"\b(BRIDGE_)?MEM(8|16|32)\s*\([^;]*\)\s*=[^=]", code):
@@ -78,14 +97,14 @@ def does_work(code):
     return any(not CONSTANT.match(rhs) for rhs in re.findall(r"\bg_e(?:ax|dx)\s*=([^;]*);", code))
 
 
-def classify(name, body):
+def classify(name, body, idle):
     if name == "bridge_generic_stub":
         return "stub"
     code = strip_comments(body)
     comments = " ".join(re.findall(r"/\*.*?\*/|//[^\n]*", body, flags=re.S))
-    if not does_work(code):
+    if not does_work(code, idle):
         return "stub"
-    real = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code)) - LOG_CALLS
+    real = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code)) - LOG_CALLS - idle
     if STUB_WORDS.search(comments) and not any(c.startswith("xbox_") for c in real):
         return "stub"
     if PARTIAL_WORDS.search(comments):
@@ -103,7 +122,7 @@ def noop_list():
     return rows
 
 
-def table(src):
+def table(src, idle):
     route, body, data = routes(src), bodies(src), data_exports(src)
     rows, errors = [], []
     for o in range(ORDINAL_MAX + 1):
@@ -113,7 +132,7 @@ def table(src):
         elif name is None:
             rows.append((o, "none", ""))
         else:
-            rows.append((o, classify(name, body[name]), name))
+            rows.append((o, classify(name, body[name], idle), name))
     for o, (name, why) in noop_list().items():
         cls, bridge = rows[o][1], rows[o][2]
         if cls != "stub" or bridge != "bridge_" + name or not why:
@@ -135,7 +154,8 @@ def render(rows):
 
 
 def main(argv):
-    rows, errors = table(open(argv[1], encoding="utf-8", errors="replace").read())
+    rows, errors = table(open(argv[1], encoding="utf-8", errors="replace").read(),
+                         idle_layer_a(pathlib.Path(argv[1]).parent))
     if errors:
         print("\n".join(errors))
         return 1
