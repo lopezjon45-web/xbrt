@@ -2,6 +2,7 @@
 #include "host/probes.h"
 #include "host/session.h"
 #include "tests/host/cpu_tests.h"
+#include "shell/desktop/kernel_tests.h"
 
 #include <windows.h>
 
@@ -123,12 +124,14 @@ struct DesktopServices final : xbrt::ShellServices {
 
 }  // namespace
 
-// xbrt_desktop.exe [--survey <folder> | --cpu-tests]: the stages and probes; with --survey, the survey over a folder
-// of images instead, writing survey.tsv beside run.txt; with --cpu-tests, the CPU core's tests, writing cpu-tests.txt.
+// xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests]: the stages and probes; with --survey, the survey
+// over a folder of images instead, writing survey.tsv beside run.txt; with --cpu-tests or --kernel-tests, that suite,
+// written to cpu-tests.txt or kernel-tests.txt.
 int main(int argc, char **argv)
 {
-    bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";
-    const char *log_name = cpu_tests ? "cpu-tests.txt" : "run.txt";
+    const bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";
+    const bool kernel_tests = argc == 2 && std::string(argv[1]) == "--kernel-tests";
+    const char *log_name = cpu_tests ? "cpu-tests.txt" : kernel_tests ? "kernel-tests.txt" : "run.txt";
     g_run = std::fopen(log_name, "w");
     if (!g_run) std::fprintf(stderr, "cannot open %s\n", log_name);
     if (argc == 3 && std::string(argv[1]) == "--survey") {
@@ -155,6 +158,12 @@ int main(int argc, char **argv)
         return 1;
     }
     for (const std::string &s : (*memory)->log()) line(s);
+    if (kernel_tests) {
+        bool passed = xbrt::run_kernel_tests(**memory, line);
+        line("END");
+        if (g_run) std::fclose(g_run);
+        return passed ? 0 : 1;
+    }
 
     std::string identity = (*memory)->identity_check();
     line(identity);

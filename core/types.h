@@ -16,6 +16,12 @@ struct GuestVa {
     GuestVa operator+(uint32_t d) const { return {v + d}; }
 };
 
+struct GuestRange {
+    GuestVa base;
+    uint32_t size;
+    bool contains(GuestVa a) const { return a.v - base.v < size; }
+};
+
 // xboxkrnl export ordinal (1..379 on retail kernels).
 struct Ordinal {
     uint16_t v;

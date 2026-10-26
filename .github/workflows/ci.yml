@@ -25,6 +25,12 @@ jobs:
       - name: No disc or console data, no per-title code
         shell: bash
         run: scripts/check-no-disc-data.sh && scripts/check-no-title-code.sh
+      # A branch may carry link-only placeholders for a workstream that has not landed; main may not.
+      - name: No placeholder definitions on main
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          if [ -e host/cpu_pending.cpp ]; then echo "host/cpu_pending.cpp is on main; delete it for the real definitions"; exit 1; fi
       # No uwp: true: the probes that start on the console build in this plain x64 environment, so xbrt does too.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -52,6 +58,16 @@ jobs:
           Copy-Item cpu-tests.txt ..\out\cpu-tests.txt -ErrorAction SilentlyContinue
       - name: Judge the CPU tests
         run: python scripts/check-cpu-tests.py out/cpu-tests.txt
+      - name: Run the kernel adapter tests
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force kernel-tests | Out-Null
+          Set-Location kernel-tests
+          ..\gen\xbrt_desktop.exe --kernel-tests
+          Write-Output "exit $LASTEXITCODE"
+          Copy-Item kernel-tests.txt ..\out\kernel-tests.txt -ErrorAction SilentlyContinue
+      - name: Judge the kernel adapter tests
+        run: python scripts/check-kernel-tests.py out/kernel-tests.txt
       - name: Publish the packages as a prerelease
         if: github.ref == 'refs/heads/main'
         env:
