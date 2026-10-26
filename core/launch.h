@@ -32,6 +32,13 @@ using QueryPairs = std::vector<std::pair<std::u16string, std::u16string>>;
 // .iso/.xiso, or an xbe that is not "\...\.xbe" is an error naming the field.
 Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs);
 
+struct ReturnFailure {
+    std::string kind, missing;
+};
+
+// What the return link names for a failure the shell recorded under `kind` with the screen line `text`.
+ReturnFailure return_failure(std::string_view kind, std::string_view text);
+
 // The return link with the outcome appended, as the hub reads it: "<return_uri>[?&]from=xbrt&result=ok" or
 // "...result=error&kind=<kind>&missing=<escaped text>". `from=` is added only when the uri carries none.
 std::u16string return_link(std::u16string_view return_uri, std::string_view result, std::string_view kind,

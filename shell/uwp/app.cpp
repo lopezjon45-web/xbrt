@@ -377,8 +377,9 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
         }
         xbrt::run_log::shell("return: " + std::string(why));
         if (!link_ || !link_->request || link_->request->return_uri.empty()) return exit_now();
-        std::u16string uri = xbrt::return_link(link_->request->return_uri, failure ? "error" : "ok",
-                                               failure ? failure->kind : "", failure ? failure->line : "");
+        xbrt::ReturnFailure named = failure ? xbrt::return_failure(failure->kind, failure->line) : xbrt::ReturnFailure{};
+        std::u16string uri =
+            xbrt::return_link(link_->request->return_uri, failure ? "error" : "ok", named.kind, named.missing);
         xbrt::run_log::shell("return link " + utf8(uri));
         try {
             // Exit only once the launcher has taken the link: exiting first can drop it.
