@@ -36,6 +36,7 @@ class Text:
     def __init__(self):
         self.code = bytearray()
         self.functions = []
+        self.chained = []
 
     def rva(self):
         return TEXT_RVA + len(self.code)
@@ -79,7 +80,7 @@ def align(n, a):
 
 
 def build_pe(text, exports=None, entry=None):
-    """A PE32+ image with .text, an export table in .rdata and .pdata: what isa-gate.py reads."""
+    """A PE32+ image with .text, an export table and unwind info in .rdata, and .pdata: what isa-gate.py reads."""
     exports = exports or {}
     rdata_rva = align(TEXT_RVA + len(text.code), 0x1000)
     names = sorted(exports)
@@ -98,8 +99,15 @@ def build_pe(text, exports=None, entry=None):
     rdata += b"".join(struct.pack("<I", r) for r in name_rvas)
     rdata += b"".join(struct.pack("<H", i) for i in range(len(names)))
     rdata += strings
+    rdata += b"\0" * (-len(rdata) % 4)
+    unwind = rdata_rva + len(rdata)
+    rdata += bytes([1, 0, 0, 0])                     # UNWIND_INFO version 1, no flags, no prolog
+    chained = rdata_rva + len(rdata)
+    rdata += bytes([1 | 4 << 3, 0, 0, 0])            # UNW_FLAG_CHAININFO, then the parent's RUNTIME_FUNCTION
+    rdata += struct.pack("<III", *(text.functions[0] if text.functions else (0, 0)), unwind)
     pdata_rva = align(rdata_rva + len(rdata), 0x1000)
-    pdata = b"".join(struct.pack("<III", b, e, 0) for b, e in sorted(text.functions))
+    entries = [(b, e, unwind) for b, e in text.functions] + [(b, e, chained) for b, e in text.chained]
+    pdata = b"".join(struct.pack("<III", *e) for e in sorted(entries))
 
     sections = [(".text", TEXT_RVA, bytes(text.code), 0x60000020), (".rdata", rdata_rva, rdata, 0x40000040),
                 (".pdata", pdata_rva, pdata, 0x40000040)]
@@ -134,7 +142,15 @@ def cases():
     t.switch(0x1000, EVEX_CASES)
     for c in EVEX_CASES:
         t.place(c, bytes.fromhex("b8") + struct.pack("<I", c) + b"\xc3", function=False)
-    yield "table bytes that decode as EVEX are data", build_pe(t), [], 0, {"AVX512": 0, "failing": 0}
+    yield "table bytes that decode as EVEX are data", build_pe(t), [], 0, {"AVX512": 0, "failing": 0, "tables": 1}
+
+    # MSVC gives the range after an epilog a chained .pdata entry, and that range can start with the switch table.
+    t = Text()
+    t.switch(0x1000, EVEX_CASES)
+    t.chained.append((0x1024, 0x1034))
+    for c in EVEX_CASES:
+        t.place(c, RET0, function=False)
+    yield "a chained .pdata entry that starts at the table", build_pe(t), [], 0, {"AVX512": 0, "tables": 1}
 
     t = Text()
     t.switch(0x1000, EVEX_CASES)
@@ -153,7 +169,7 @@ def cases():
     t.switch(0x1000, EVEX_CASES, bounded=False)
     for c in EVEX_CASES:
         t.place(c, RET0, function=False)
-    yield "a table with no bound check counts as code", build_pe(t), [], 1, {"AVX512": 1}
+    yield "a table with no bound check counts as code", build_pe(t), [], 1, {"AVX512": 1, "tables": 0}
 
     t = Text()
     t.place(0x1000, RET0)
@@ -164,6 +180,12 @@ def cases():
         t = Text()
         cos = t.place(0x1000, FMA3 + RET0)
         yield f"an FMA3 body with {allow or 'no allow'}", build_pe(t, {"cos": cos}), allow, code, {"FMA3": 1}
+
+    t = Text()
+    cos = t.place(0x1000, FMA3 + RET0)
+    t.place(0x1100, FMA3 + RET0)
+    yield "an allow does not reach past its function", build_pe(t, {"cos": cos}), ["--allow", "^cos$"], 1, \
+        {"FMA3": 2, "allowed": 1, "failing": 1}
 
 
 def main():
