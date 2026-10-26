@@ -333,6 +333,11 @@ extern "C" int xbox_frontend_va_mapped(uint32_t va, uint32_t bytes)
 
 extern "C" void xbox_frontend_return_to_hub(uint32_t reason) { g_setup.sink->return_to_hub(reason); }
 
+extern "C" void xbox_frontend_refuse(const char *what)
+{
+    xbrt::stop_or_warn(xbrt::MissingKind::KernelExport, true, what, g_xbox_kernel_caller);
+}
+
 extern "C" const XboxDiscVolume *xbox_frontend_disc(void) { return g_setup.disc; }
 
 // ---- What the fork's lifted-only files exported, over GuestMemory -------------------------------------------------
