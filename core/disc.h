@@ -14,6 +14,7 @@ struct DiscFile {
     uint64_t offset;    // of the data in the image (partition base + sector * 2048)
     uint64_t size;
     bool directory;
+    uint8_t attributes;   // the XDVDFS attribute byte (0x10 directory, 0x01 read-only, ...)
 };
 
 class DiscIndex {
@@ -26,6 +27,8 @@ public:
     // Case-insensitive, as XDVDFS is. Accepts "\\default.xbe" and "default.xbe"; "D:\\default.xbe" is not accepted
     // (the kernel strips the device prefix before asking).
     std::optional<DiscFile> find(std::string_view path) const;
+    // The same lookup as an index into all(); "" is not an entry (the root has none).
+    std::optional<size_t> index_of(std::string_view path) const;
     std::vector<DiscFile> list(std::string_view directory) const;   // "" for the root
     const std::vector<DiscFile> &all() const { return files_; }
 

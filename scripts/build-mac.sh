@@ -7,6 +7,7 @@ out=${1:-$repo/gen/mac}
 mkdir -p "$out"
 ext=$repo/external
 third=(-DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD -I"$ext/zydis/include" -I"$ext/zydis/dependencies/zycore/include"
+       -I"$ext/xboxrecomp/include"
        -I"$ext/XbSymbolDatabase/include")
 if [ ! -f "$out/libthird.a" ] || [ "$ext/zydis/src/Decoder.c" -nt "$out/libthird.a" ]; then
     # Zydis and Zycore each have a String.c, so every object is named by its library too.

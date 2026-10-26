@@ -108,11 +108,12 @@ Parsed<DiscIndex> DiscIndex::open(const Source &image)
                 if (!plain_component(name))
                     return std::unexpected("entry in \"" + dir.prefix + "\" has a name that is not a plain file name");
                 uint32_t sector = u32(e + 4), size = u32(e + 8);
-                bool directory = e[0x0C] & kAttrDirectory;
+                uint8_t attributes = e[0x0C];
+                bool directory = attributes & kAttrDirectory;
                 if (!directory && !extent_ok(sector, size))
                     return std::unexpected("file \"" + dir.prefix + name + "\" lies outside the image");
                 if (files.size() == kMaxEntries) return std::unexpected("more entries than any Xbox disc holds");
-                files.push_back({dir.prefix + name, base + uint64_t(sector) * kSector, size, directory});
+                files.push_back({dir.prefix + name, base + uint64_t(sector) * kSector, size, directory, attributes});
                 if (directory) pending.push_back({sector, size, dir.prefix + name + "\\"});
                 off += (kEntryHeader + name_len + 3) & ~size_t(3);
             }
@@ -125,13 +126,20 @@ Parsed<DiscIndex> DiscIndex::open(const Source &image)
     return index;
 }
 
-std::optional<DiscFile> DiscIndex::find(std::string_view path) const
+std::optional<size_t> DiscIndex::index_of(std::string_view path) const
 {
     path = strip_root(path);
     auto it = std::lower_bound(files_.begin(), files_.end(), path,
                                [](const DiscFile &f, std::string_view p) { return path_less(f.path, p); });
     if (it == files_.end() || !path_equal(it->path, path)) return std::nullopt;
-    return *it;
+    return size_t(it - files_.begin());
+}
+
+std::optional<DiscFile> DiscIndex::find(std::string_view path) const
+{
+    std::optional<size_t> i = index_of(path);
+    if (!i) return std::nullopt;
+    return files_[*i];
 }
 
 std::vector<DiscFile> DiscIndex::list(std::string_view directory) const
