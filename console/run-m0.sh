@@ -18,7 +18,7 @@ LEASE=/Users/jonlopez/mesa-one-s/xbox/console-free
 LEASE_NAME=xbrt-m0
 MAIN_NAME=LopezJon.XboxRuntime
 LAUNCHES=25
-DEADLINE=900
+DEADLINE=1800
 DRY_RUN=${DRY_RUN:-0}
 
 [ $# -ge 1 ] || die "usage: run-m0.sh <release dir> [--launches N] [--deadline S]"
