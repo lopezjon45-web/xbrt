@@ -15,6 +15,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <map>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -526,6 +527,32 @@ struct Tests {
                 detail};
     }
 
+    // Defect: a ThreadBlock that outlives its thread. A title that starts and ends threads for ever then runs the
+    // runtime region out of blocks; one hundred threads in turn must share a handful.
+    Result thread_reuse()
+    {
+        uint32_t stub = cpu.gate_for(HostCallId::from_raw(110)).v;
+        P p;
+        p.mov_ecx_imm(stub).call_ecx().ret();
+        uint32_t payload = code.put(p.b);
+        static std::set<uint32_t> blocks;
+        blocks.clear();
+        g_handlers[110] = [](GuestThread &t, GateFrame &f) {
+            blocks.insert(t.kpcr().v);
+            stdcall_return(f, 0);
+        };
+        snap();
+        DWORD waits = 0;
+        for (int i = 0; i < 100; i++) {
+            GuestThread &t = GuestThread::spawn({payload}, std::span<const uint32_t>{}, SpawnOptions{0x10000, 8, false, 0});
+            if (WaitForSingleObject(detail::thread_handle(t), 10000) != WAIT_OBJECT_0) waits++;
+        }
+        uint32_t threads_now = cpu.counters().live_guest_threads;
+        std::string detail = format("%zu distinct ThreadBlocks for 100 threads run one after another, %lu joins timed out, threads=%u",
+                                    blocks.size(), waits, threads_now);
+        return {blocks.size() <= 2 && waits == 0 && threads_now == 0, detail};
+    }
+
     // Defect: a thread left suspended inside an MMIO access, holding the device's lock, or one never suspended once
     // it is outside.
     Result suspend_scope()
@@ -797,6 +824,7 @@ bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::stri
     report("nested", t.nested());
     report("trap-state", t.trap_state());
     report("spawn-exit", t.spawn_exit());
+    report("thread-reuse", t.thread_reuse());
     report("suspend-scope", t.suspend_scope());
     report("fault-gate", t.fault_gate());
     report("memory", t.memory_verbs());
