@@ -362,6 +362,20 @@ void emulate_port(Trap &t)
     if (string && rep) gpr(c, 1) = 0;
 }
 
+// The model-specific registers a title may read, as the console's Pentium III answers them. EBL_CR_POWERON's bits
+// 22-27 carry the bus-to-core ratio, 5.5 on a retail console (733 MHz on a 133 MHz bus), which a runtime reads at
+// start to know its TSC rate.
+bool read_msr(uint32_t msr, uint64_t &value)
+{
+    constexpr uint32_t kTsc = 0x10, kEblCrPoweron = 0x2A;
+    constexpr uint64_t kRatio5_5 = 0b000100;
+    switch (msr) {
+    case kTsc: value = guest_tsc_now(); return true;
+    case kEblCrPoweron: value = kRatio5_5 << 22; return true;
+    default: return false;
+    }
+}
+
 bool has_fs_operand(const Trap &t)
 {
     for (unsigned i = 0; i < t.in.operand_count; i++)
@@ -497,6 +511,16 @@ uint32_t route(Trap &t)
             s.traps_privileged++;
             SwitchToThread();
             return t.next();
+        case ZYDIS_MNEMONIC_RDMSR: {
+            uint64_t v = 0;
+            if (!read_msr(t.reg(1), v))
+                fatal_trap(t.tb, format("cannot emulate '%s' (MSR 0x%X)", disasm(t).c_str(), t.reg(1)));
+            gpr(t.c, 0) = uint32_t(v);
+            gpr(t.c, 2) = uint32_t(v >> 32);
+            s.traps_privileged++;
+            trace(t, "msr", t.next());
+            return t.next();
+        }
         default: break;
         }
         if (is_segment_load(t)) fatal_trap(t.tb, format("selector load '%s'", disasm(t).c_str()));

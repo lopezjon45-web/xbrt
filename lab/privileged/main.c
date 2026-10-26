@@ -76,5 +76,12 @@ void __cdecl lab_entry(void)
         lab_put_dec(&s, system_us);
         lab_finish("privileged", &s);
     }
+    ULONG msr_lo, msr_hi;
+    __asm__ volatile("rdmsr" : "=a"(msr_lo), "=d"(msr_hi) : "c"(0x2A));
+    if (((msr_lo >> 22) & 0x2F) != 0x04 || msr_hi) {
+        LabLine s = lab_step("rdmsr 0x2A (EBL_CR_POWERON) ratio bits ");
+        lab_put_hex(&s, (msr_lo >> 22) & 0x2F);
+        lab_finish("privileged", &s);
+    }
     lab_finish("privileged", NULL);
 }
