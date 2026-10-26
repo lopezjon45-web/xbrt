@@ -90,6 +90,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           read -r tag sum < tools/m0/corpus.lock
+          sum=${sum%$'\r'}
           gh release download "$tag" --repo lopezjon45-web/xemu --pattern m0-corpus.tar.gz --dir m0-src
           echo "$sum  m0-src/m0-corpus.tar.gz" | sha256sum -c
           tar -xzf m0-src/m0-corpus.tar.gz -C m0-src
