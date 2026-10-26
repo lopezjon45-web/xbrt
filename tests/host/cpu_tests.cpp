@@ -499,6 +499,8 @@ struct Tests {
             t.exit(0x77);
         };
         snap();
+        g_fatals = 0;
+        g_fatal = {};
         SpawnOptions options{0x20000, 8, false, 0x40};
         GuestThread &t = GuestThread::spawn({payload_e}, std::span<const uint32_t>{}, options);
         HANDLE h = detail::thread_handle(t);
@@ -507,8 +509,9 @@ struct Tests {
         GetExitCodeThread(h, &code);
         uint32_t threads_now = cpu.counters().live_guest_threads;
         const ThreadBlock *tb = detail::block_of(t);
-        std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X", wait, code, exit_depth,
-                                    spawned_index, threads_now, int(tls), tb->kpcr.PrcbData.DmEnetFunc);
+        std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X fatal='%s' at 0x%08X", wait,
+                                    code, exit_depth, spawned_index, threads_now, int(tls), tb->kpcr.PrcbData.DmEnetFunc,
+                                    g_fatals ? g_fatal.what.c_str() : "", g_fatals ? g_fatal.where.v : 0);
         return {wait == WAIT_OBJECT_0 && code == 0x77 && exit_depth == 2 && spawned_index == t.index() && spawned_index > 0 && threads_now == 0 && tls &&
                     tb->kpcr.PrcbData.DmEnetFunc != 0,
                 detail};
