@@ -13,13 +13,35 @@
 #include "core/xbe.h"
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 namespace xbrt {
 
 enum class RamSize : uint32_t { Retail64 = 64u << 20, Devkit128 = 128u << 20 };
+
+// The Xbox kernel's own values, as NtAllocateVirtualMemory and friends receive them from the title.
+namespace xbox_mem {
+constexpr uint32_t Commit = 0x1000, Reserve = 0x2000, Decommit = 0x4000, Release = 0x8000, Free = 0x10000,
+                   Private = 0x20000, Reset = 0x80000, TopDown = 0x100000, NoZero = 0x800000;
+}
+namespace xbox_page {
+constexpr uint32_t NoAccess = 0x01, ReadOnly = 0x02, ReadWrite = 0x04, Execute = 0x10, ExecuteRead = 0x20,
+                   ExecuteReadWrite = 0x40, Guard = 0x100, NoCache = 0x200, WriteCombine = 0x400;
+}
+namespace xbox_status {
+constexpr uint32_t Success = 0, InvalidParameter = 0xC000000D, NoMemory = 0xC0000017, ConflictingAddresses = 0xC0000018,
+                   UnableToFreeVm = 0xC000001A, NotCommitted = 0xC000002D, InvalidPageProtection = 0xC0000045,
+                   FreeVmNotAtBase = 0xC000009F, MemoryNotAllocated = 0xC00000A0;
+}
+
+// NtQueryVirtualMemory's MEMORY_BASIC_INFORMATION, field for field (every field is 32 bits on the Xbox).
+struct XboxMemoryBasicInformation {
+    uint32_t base_address, allocation_base, allocation_protect, region_size, state, protect, type;
+};
 
 class GuestMemory {
 public:
@@ -81,11 +103,39 @@ public:
 
 private:
     GuestMemory() = default;
+
+    // What owns a 4 KB physical page. Reserved: inside a user reservation, not committed. The bitmap is the single
+    // owner of every physical page across the three views.
+    enum class Owner : uint8_t { Free, Reserved, User, Image, Contiguous };
+    struct Vad {
+        uint32_t size, protect;
+    };
+    struct Block {
+        uint32_t size, protect;
+    };
+
+    bool user_range(uint32_t base, uint32_t size) const;
+    uint32_t find_free_user(uint32_t pages, bool top_down) const;
+    std::map<uint32_t, Vad>::const_iterator vad_containing(uint32_t base, uint32_t size, bool *overflow) const;
+    void commit_user(uint32_t va, uint32_t protect, bool image);
+    void decommit_user(uint32_t va, Owner to);
+    uint32_t system_block(uint32_t size, uint32_t protect, uint32_t *counter);
+    void release_system_block(uint32_t va, uint32_t size, uint32_t *counter);
+
     std::vector<std::string> log_;
     uint32_t ram_ = 0;
     void *section_ = nullptr;
     uint32_t runtime_cursor_ = 0;
-    uint32_t stack_cursor_ = 0;
+    std::vector<uint32_t> thread_blocks_free_;
+    mutable std::mutex lock_;
+    std::vector<Owner> pfn_;              // by physical page
+    std::vector<uint16_t> user_protect_;   // by user VA page: the Xbox protect of a committed page, 0 otherwise
+    std::map<uint32_t, Vad> vads_;        // user reservations by base (64 KB aligned)
+    std::map<uint32_t, Block> contiguous_;   // by VA (0x80000000 + physical)
+    std::map<uint32_t, Block> system_;       // stacks and allocate_system, by VA
+    std::multimap<uint32_t, uint32_t> system_free_;   // size -> VA of a decommitted block, reused exact-size
+    uint32_t system_cursor_ = 0;
+    uint32_t stack_pages_ = 0, system_pages_ = 0;
 };
 
 }  // namespace xbrt
