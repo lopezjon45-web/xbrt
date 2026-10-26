@@ -1,5 +1,6 @@
 #include "core/launch.h"
 #include "core/xbe.h"
+#include "host/m0/probe.h"
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
@@ -54,6 +55,8 @@ std::optional<Failure> g_first_failure;
 std::atomic<bool> g_guest_left{false};
 // The Devices stage has passed: the title's pad exists and the pad line can be shown.
 std::atomic<bool> g_devices_attached{false};
+// launch.txt reading exactly "m0-probe" runs the M0 shader and draw-cost probe instead of a game (console/run-m0.sh).
+bool g_m0 = false;
 
 std::string utf8(std::u16string_view s)
 {
@@ -250,8 +253,39 @@ void list_library()
     if (f) fclose(f);
 }
 
+// The corpus ships in the package (build.ps1); results go to LocalState\m0.tsv. A relaunch line tells
+// console/run-m0.sh to start the app again: a pipeline broke the device, and m0.tsv says where to resume.
+void run_m0()
+{
+    std::wstring corpus_path =
+        std::wstring(Windows::ApplicationModel::Package::Current().InstalledLocation().Path()) + L"\\m0-corpus.txt";
+    FILE *f = _wfopen(corpus_path.c_str(), L"rb");
+    if (!f) {
+        report("m0", "m0 FAIL no m0-corpus.txt in the package", LineColour::Red);
+        return;
+    }
+    xbrt::m0::ProbeOptions options;
+    char buf[65536];
+    for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) options.corpus.append(buf, n);
+    fclose(f);
+    options.out_dir = g_local_state;
+    xbrt::m0::Outcome outcome = xbrt::m0::run_probe(options, [](const std::string &l) {
+        report("m0", l, l.starts_with("m0 FAIL") ? LineColour::Red : LineColour::White);
+    });
+    if (outcome == xbrt::m0::Outcome::Relaunch) xbrt::run_log::run("m0 relaunch");
+    if (outcome == xbrt::m0::Outcome::Done) report("m0", "m0 done", LineColour::Green);
+}
+
 void boot(Link link)
 {
+    if (g_m0) {
+        report("link", link.line, link.colour);
+        run_m0();
+        xbrt::run_log::run("END");
+        g_screen.add("done. B returns to the hub", LineColour::White);
+        g_boot_running = false;
+        return;
+    }
     if (g_memory) {
         const std::vector<std::string> &steps = g_memory->log();
         for (size_t i = 0; i + 1 < steps.size(); i++) xbrt::run_log::run(steps[i]);
@@ -342,6 +376,12 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
             return;
         }
         xbrt::run_log::shell("activation kind " + kind);
+        if (args.Kind() != ActivationKind::Protocol && read_launch_txt() == "m0-probe") {
+            g_m0 = true;
+            link_ = Link{std::nullopt, "link m0-probe (launch.txt)", LineColour::White};
+            start_boot();
+            return;
+        }
         link_ = resolve_link(args);
         start_boot();
     }

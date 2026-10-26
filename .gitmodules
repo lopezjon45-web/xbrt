@@ -8,3 +8,9 @@
 	path = external/xboxrecomp
 	url = https://github.com/lopezjon45-web/xboxrecomp
 	branch = xbrt
+[submodule "external/glslang"]
+	path = external/glslang
+	url = https://github.com/KhronosGroup/glslang
+[submodule "external/SPIRV-Cross"]
+	path = external/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross

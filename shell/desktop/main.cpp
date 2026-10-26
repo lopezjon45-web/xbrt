@@ -1,4 +1,5 @@
 #include "host/cpu.h"
+#include "host/m0/probe.h"
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
@@ -231,12 +232,35 @@ int run_xbe(const RunArgs &args)
     return why == xbrt::ExitReason::Fatal ? 2 : 0;
 }
 
+// The M0 probe on WARP, writing m0.tsv in the current folder. Exit 0 when m0.tsv has its end row, 2 when a pipeline
+// broke the device and the probe must be started again to go on, 1 when it cannot run.
+int run_m0(const char *bundle)
+{
+    std::ifstream in(bundle, std::ios::binary);
+    if (!in) {
+        line("m0 FAIL cannot read " + std::string(bundle));
+        return 1;
+    }
+    xbrt::m0::ProbeOptions options;
+    options.corpus.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    options.out_dir = std::filesystem::current_path().wstring();
+    options.warp = true;
+    options.bench_frames = 30;
+    switch (xbrt::m0::run_probe(options, line)) {
+    case xbrt::m0::Outcome::Done: return 0;
+    case xbrt::m0::Outcome::Relaunch: return 2;
+    case xbrt::m0::Outcome::Failed: return 1;
+    }
+    return 1;
+}
+
 }  // namespace
 
 // xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests | --run <xbe, dir or .iso> [--seconds N]
-// [--home <dir>]]: the stages and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests
+// [--home <dir>] |
+// --m0 <corpus bundle>]: the stages and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests
 // write that suite's file; --run boots that XBE with its folder as D:\, or an image's default.xbe with the image as D:\,
-// and keeps saves under <home>\saves\xbrt (default: the working directory, as LocalState).
+// and keeps saves under <home>\saves\xbrt (default: the working directory, as LocalState). --m0 runs the M0 probe on WARP.
 int main(int argc, char **argv)
 {
     const bool cpu_tests = argc == 2 && std::string(argv[1]) == "--cpu-tests";
@@ -244,6 +268,11 @@ int main(int argc, char **argv)
     const char *log_name = cpu_tests ? "cpu-tests.txt" : kernel_tests ? "kernel-tests.txt" : "run.txt";
     g_run = std::fopen(log_name, "w");
     if (!g_run) std::fprintf(stderr, "cannot open %s\n", log_name);
+    if (argc == 3 && std::string(argv[1]) == "--m0") {
+        int code = run_m0(argv[2]);
+        line("END");
+        return code;
+    }
     if (argc >= 2 && std::string(argv[1]) == "--run") {
         xbrt::Parsed<RunArgs> args = parse_run(argc, argv);
         if (!args) {

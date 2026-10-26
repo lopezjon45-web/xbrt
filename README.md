@@ -13,6 +13,10 @@ modelled. The design is `~/mesa-one-s/xbox-runtime/candidate-opus/` (design.md, 
 - `shell/uwp/` is the console app (CoreApplication, D3D12 to D3D11On12, the status screen, protocol activation).
   `shell/desktop/` is the same reserve, device and probes as a console program for the windows-2022 runner.
 - `tools/xbrt-inspect/` prints what the runtime reads from an XBE or a disc image.
+- `host/m0/` is the M0 probe (SYNTHESIS.md): xemu's generated shaders through glslang, SPIRV-Cross and D3DCompile, their
+  pipelines on D3D11On12, and the CPU cost of a draw. `tools/m0/pack-corpus.py` packs the corpus that the public fork
+  lopezjon45-web/xemu (branch m0-corpus) records from nxdk_pgraph_tests; `tools/m0/corpus.lock` pins it;
+  `console/run-m0.sh` runs the probe on the console and `scripts/m0-report.py` applies the decision rule.
 - `package/make-manifests.py` writes the package manifests, including the start-refusal bisect ladder.
 - `console/` holds the scripts that put a build on the console through the Device Portal.
 

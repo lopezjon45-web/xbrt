@@ -11,6 +11,11 @@ Third-party code in this repository or linked into its binaries:
 | One S low-memory probe (`one-s-lowmem-probe`, lopezjon45-web) | `host/memory.cpp`, `host/probes.cpp` | Ours | Its reservations and compat-mode thunks became `GuestMemory::reserve` and the U0 probes |
 | Zydis and Zycore (zyantific) | `external/zydis` | MIT | The code map's x86 decoder, built without the encoder |
 | XbSymbolDatabase (Cxbx-Reloaded) | `external/XbSymbolDatabase` | MIT | XDK function and variable names for overrides and the survey |
+| glslang (Khronos) | `external/glslang` | BSD-3-Clause, with MIT and Apache-2.0 parts (its LICENSE.txt) | GLSL to SPIR-V in the shader chain (`host/m0`), built without HLSL input or the optimizer |
+| SPIRV-Cross (Khronos) | `external/SPIRV-Cross` | Apache-2.0 | SPIR-V to HLSL in the shader chain (`host/m0`) |
+
+Apache-2.0 is compatible with GPL version 3, not version 2, so a binary that links glslang and SPIRV-Cross (xbrt.exe
+and xbrt_desktop.exe from M0 on) is distributed under GPL-3.0-or-later, which xbrt's "or any later version" allows.
 
 Planned donors, not yet taken (their notices will be added with their code):
 

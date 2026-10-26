@@ -60,17 +60,40 @@ Run cl.exe ($cflags + @("/DUNICODE", "/D_UNICODE", "/DWINAPI_FAMILY=WINAPI_FAMIL
     "/DXBOXRECOMP_UWP=1", "/DXBOXRECOMP_FRONTEND_DIRECT=1", "/FI$root\$fork\src\platform\app_partition.h",
     "/I$fork\src\kernel", "/I$fork\src", "/I$fork\include", "/c", "/Fdgen\fork\", "/Fogen\fork\") + $forkSources)
 Run lib.exe (@("/nologo", "/OUT:gen\fork\xboxrecomp_kernel.lib") + (Get-ChildItem gen\fork\*.obj | ForEach-Object { $_.FullName }))
+# The M0 shader chain's libraries, built by their own CMake: glslang without the SPIR-V optimizer or HLSL input, and
+# SPIRV-Cross's core, GLSL and HLSL backends. The static CRT matches /MT; the CL variable keeps the STL's AVX2
+# vector-algorithm bodies out of them as it does for xbrt's own code.
+$env:CL = "/D_USE_STD_VECTOR_ALGORITHMS=0"
+$cmakeCommon = @("-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
+    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl")
+Run cmake.exe ($cmakeCommon + @("-S", "external\glslang", "-B", "gen\glslang", "-DENABLE_OPT=OFF", "-DENABLE_HLSL=OFF",
+    "-DENABLE_GLSLANG_BINARIES=OFF", "-DGLSLANG_TESTS=OFF", "-DGLSLANG_ENABLE_INSTALL=OFF", "-DBUILD_EXTERNAL=OFF",
+    "-DBUILD_SHARED_LIBS=OFF", "-DENABLE_PCH=OFF"))
+Run cmake.exe @("--build", "gen\glslang", "--target", "glslang", "glslang-default-resource-limits")
+Run cmake.exe ($cmakeCommon + @("-S", "external\SPIRV-Cross", "-B", "gen\spirv-cross", "-DSPIRV_CROSS_CLI=OFF",
+    "-DSPIRV_CROSS_ENABLE_TESTS=OFF", "-DSPIRV_CROSS_ENABLE_MSL=OFF", "-DSPIRV_CROSS_ENABLE_CPP=OFF",
+    "-DSPIRV_CROSS_ENABLE_REFLECT=OFF", "-DSPIRV_CROSS_ENABLE_C_API=OFF", "-DSPIRV_CROSS_ENABLE_UTIL=OFF",
+    "-DSPIRV_CROSS_SHARED=OFF", "-DSPIRV_CROSS_STATIC=ON", "-DSPIRV_CROSS_SKIP_INSTALL=ON"))
+Run cmake.exe @("--build", "gen\spirv-cross")
+Remove-Item Env:CL
+$chainLibs = @(Get-ChildItem gen\glslang -Recurse -Include glslang.lib, glslang-default-resource-limits.lib |
+    ForEach-Object { $_.FullName }) + @(Get-ChildItem gen\spirv-cross -Recurse -Include spirv-cross-core.lib,
+    spirv-cross-glsl.lib, spirv-cross-hlsl.lib | ForEach-Object { $_.FullName }) + @("d3dcompiler.lib")
+Note "shader chain libraries: $(($chainLibs | ForEach-Object { Split-Path $_ -Leaf }) -join ' ')"
+
 $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include",
     "/I$fork\include", "/I$fork\src")
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp | ForEach-Object { $_.FullName })
+New-Item -ItemType Directory -Force gen\m0 | Out-Null
+Compile "gen\m0" @("/Iexternal\glslang", "/Igen\glslang\include", "/Iexternal\SPIRV-Cross") (Get-ChildItem host\m0\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\desktop" @() ((Get-ChildItem shell\desktop\*.cpp, tests\host\*.cpp) | ForEach-Object { $_.FullName })
 Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")
 
 $coreObjs = Get-ChildItem gen\core\*.obj, gen\zydis\*.obj, gen\zycore\*.obj, gen\xbsdb\*.obj | ForEach-Object { $_.FullName }
-$hostObjs = @(Get-ChildItem gen\host\*.obj | ForEach-Object { $_.FullName }) + @("gen\fork\xboxrecomp_kernel.lib")
+$hostObjs = @(Get-ChildItem gen\host\*.obj, gen\m0\*.obj | ForEach-Object { $_.FullName }) + @("gen\fork\xboxrecomp_kernel.lib") + $chainLibs
 $uwpObjs = Get-ChildItem gen\uwp\*.obj | ForEach-Object { $_.FullName }
 
 Run link.exe (@("/nologo", "/OUT:gen\xbrt.exe", "/SUBSYSTEM:WINDOWS", "/APPCONTAINER", "/DEBUG", "/OPT:REF", "/OPT:ICF", "/PDB:gen\xbrt.pdb") +
@@ -134,6 +157,8 @@ foreach ($manifest in Get-ChildItem gen\manifests\*.xml) {
     Remove-Item -Recurse -Force $payload -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $payload | Out-Null
     Copy-Item gen\xbrt.exe "$payload\xbrt.exe"
+    # The M0 probe's corpus (CI fetches it from the pinned m0-corpus release; tools/m0/corpus.lock).
+    if (Test-Path gen\m0-corpus.txt) { Copy-Item gen\m0-corpus.txt "$payload\m0-corpus.txt" }
     Run python.exe @("-I", "package\make-assets.py", "$payload\Assets")
     Copy-Item $manifest.FullName "$payload\AppxManifest.xml"
     $appx = "out\${name}_${pkgVersion}_x64.appx"

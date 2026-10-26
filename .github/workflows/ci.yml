@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Self-test the lab judge
         run: python3 scripts/check-lab-run.py --self-test
+      - name: Self-test the M0 report
+        run: python3 scripts/m0-report.py --self-test
       - name: Fetch nxdk
         run: |
           git init -q nxdk
@@ -65,7 +67,7 @@ jobs:
     # A broken lab build must not cost the console package: the lab steps below skip when the XBEs are missing.
     if: ${{ !cancelled() }}
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +83,20 @@ jobs:
         shell: bash
         run: |
           if [ -e host/cpu_pending.cpp ]; then echo "host/cpu_pending.cpp is on main; delete it for the real definitions"; exit 1; fi
+      # The M0 corpus: the pipelines upstream xemu's generators made for nxdk_pgraph_tests, published by the public
+      # fork's m0-corpus workflow and pinned by tools/m0/corpus.lock. build.ps1 puts the bundle in the package.
+      - name: Fetch the M0 corpus
+        if: hashFiles('tools/m0/corpus.lock') != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r tag sum < tools/m0/corpus.lock
+          gh release download "$tag" --repo lopezjon45-web/xemu --pattern m0-corpus.tar.gz --dir m0-src
+          echo "$sum  m0-src/m0-corpus.tar.gz" | sha256sum -c
+          tar -xzf m0-src/m0-corpus.tar.gz -C m0-src
+          mkdir -p gen
+          python tools/m0/pack-corpus.py m0-src/corpus gen/m0-corpus.txt
       # No uwp: true: the probes that start on the console build in this plain x64 environment, so xbrt does too.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -118,6 +134,31 @@ jobs:
           Copy-Item kernel-tests.txt ..\out\kernel-tests.txt -ErrorAction SilentlyContinue
       - name: Judge the kernel adapter tests
         run: python scripts/check-kernel-tests.py out/kernel-tests.txt
+      # The M0 probe on WARP, started again after each launch a pipeline ends (exit 2), as console/run-m0.sh does on
+      # the console. WARP is not the console's driver: the run proves the probe and the chain, and the report is
+      # printed, not gated; the decision is the console's.
+      - name: Run the M0 probe on WARP
+        if: hashFiles('tools/m0/corpus.lock') != ''
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force m0-warp | Out-Null
+          Set-Location m0-warp
+          $code = 2
+          for ($i = 1; $i -le 40 -and $code -eq 2; $i++) {
+            ..\gen\xbrt_desktop.exe --m0 ..\gen\m0-corpus.txt | Out-Null
+            $code = $LASTEXITCODE
+            Get-Content run.txt | Add-Content ..\out\m0-warp-run.txt
+            Write-Output "launch $i exit $code"
+          }
+          Copy-Item m0.tsv ..\out\m0-warp.tsv
+          Get-Content ..\out\m0-warp-run.txt
+          if ($code -ne 0) { exit 1 }
+      - name: Report the M0 probe on WARP
+        if: hashFiles('tools/m0/corpus.lock') != ''
+        shell: bash
+        run: |
+          python scripts/m0-report.py out/m0-warp.tsv --label "WARP on windows-2022, run ${{ github.run_id }}" | tee out/m0-warp-report.txt || true
+          grep -q "^end" out/m0-warp.tsv
       - name: Fetch the lab XBEs
         id: labxbe
         continue-on-error: true
@@ -184,6 +225,6 @@ jobs:
         shell: bash
         run: |
           tag="build-${{ github.run_number }}"
-          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/cpu-tests.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe \
+          gh release create "$tag" out/*.appx out/SHA256SUMS.txt out/gate.txt out/build-info.txt out/desktop-run.txt out/cpu-tests.txt out/xbrt.pdb out/xbrt-inspect.exe out/xbrt_desktop.exe $(ls out/m0-warp.tsv out/m0-warp-report.txt 2>/dev/null) \
             --prerelease --title "xbrt build ${{ github.run_number }} ($(git rev-parse --short HEAD))" \
             --notes "Run ${{ github.run_id }} of ${{ github.sha }}. Install LopezJon.XboxRuntime_*.appx; the XbrtBisect0..5 packages are the start-refusal ladder (package/make-manifests.py)."
