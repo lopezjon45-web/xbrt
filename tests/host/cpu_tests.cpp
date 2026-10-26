@@ -6,6 +6,7 @@
 #include <Zydis/Zydis.h>
 
 #include <windows.h>
+#include <intrin.h>
 
 #include <cstdarg>
 #include <cstdio>
@@ -514,6 +515,9 @@ struct Tests {
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X notify=0x%08X fatal='%s' at 0x%08X",
                                     wait, code, exit_depth, spawned_index, threads_now, int(tls), monitor, notify,
                                     g_fatals ? g_fatal.what.c_str() : "", g_fatals ? g_fatal.where.v : 0);
+        if (g_fatals)
+            detail += format(" esp=0x%08X ebp=0x%08X eflags=0x%08X eax=0x%08X ecx=0x%08X", g_fatal.esp, g_fatal.ebp, g_fatal.eflags, g_fatal.eax,
+                             g_fatal.ecx);
         return {wait == WAIT_OBJECT_0 && code == 0x77 && exit_depth == 2 && spawned_index == t.index() && spawned_index > 0 && threads_now == 0 && tls &&
                     notify == detail::g_cpu->gates.dm_notify,
                 detail};
@@ -688,6 +692,15 @@ struct Tests {
 
 bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::string &)> &sink)
 {
+    {
+        int regs[4];
+        char brand[49] = {};
+        for (int i = 0; i < 3; i++) {
+            __cpuid(regs, int(0x80000002 + i));
+            memcpy(brand + 16 * i, regs, 16);
+        }
+        sink(std::string("cpu host ") + brand);
+    }
     constexpr uint32_t kCodeSpan = 0x10000;
     GuestVa span = memory.runtime_alloc(kCodeSpan, 0x1000, true);
     if (!span.v) {

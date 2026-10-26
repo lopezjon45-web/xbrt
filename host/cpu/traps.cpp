@@ -456,7 +456,8 @@ uint32_t route(Trap &t)
         if (t.addr >= kKernelImageBase && t.addr < kKernelImageEnd)
             fatal_trap(t.tb, format("fault on 0x%08X (kernel image) at '%s'", uint32_t(t.addr), disasm(t).c_str()));
         if (is_segment_load(t)) fatal_trap(t.tb, format("selector load '%s'", disasm(t).c_str()));
-        fatal_trap(t.tb, format("%s fault on 0x%08X at '%s'", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str()));
+        fatal_trap(t.tb, format("%s fault on 0x%08X at '%s' (ss=0x%X cs=0x%X)", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str(),
+                                t.c.SegSs, t.c.SegCs));
     }
     if (t.code == STATUS_PRIVILEGED_INSTRUCTION) {
         if (t.bytes[0] == kRdtscTrap[0] && rdtsc_site(t.eip)) {
