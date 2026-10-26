@@ -636,6 +636,12 @@ struct Tests {
         check(memory.allocate_virtual(&beyond, &beyond_size, Commit, ReadWrite) == xbox_status::ConflictingAddresses, "commit past the reservation");
         uint32_t zero = 0;
         check(memory.free_virtual(&fixed, &zero, Release) == xbox_status::Success, "release fixed");
+        GuestVa unaligned{0x00501000};
+        uint32_t unaligned_size = 0x1000;
+        check(memory.allocate_virtual(&unaligned, &unaligned_size, Reserve | Commit, ReadWrite) == xbox_status::Success && unaligned.v == 0x00500000 &&
+                  unaligned_size == 0x2000,
+              format("reserve+commit at an unaligned base: 0x%08X+0x%X", unaligned.v, unaligned_size));
+        if (unaligned.v) memory.free_virtual(&unaligned, &zero, Release);
 
         GuestVa bad{};
         uint32_t bad_size = 0;
@@ -673,7 +679,7 @@ struct Tests {
         }
         GuestMemory::Statistics s1 = memory.statistics();
         check(s1.available_pages == s1.total_pages - s1.user_pages - s1.contiguous_pages - s1.system_pages - s1.stack_pages, "available adds up");
-        std::string detail = fails.empty() ? format("%u checks, available %u of %u pages", 40u, s1.available_pages, s1.total_pages) : "";
+        std::string detail = fails.empty() ? format("%u checks, available %u of %u pages", 41u, s1.available_pages, s1.total_pages) : "";
         for (const std::string &f : fails) detail += (detail.empty() ? "" : "; ") + f;
         return {fails.empty(), detail};
     }

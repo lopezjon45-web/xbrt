@@ -106,6 +106,7 @@ bool promote(const PatchSite &site, bool learned)
     }
     }
     write_site(site.at.v, bytes);
+    if (site.kind != SiteKind::Rdtsc) s.promoted.insert(site.at.v);
     if (site.kind == SiteKind::Rdtsc) {
         std::lock_guard<std::mutex> routes(s.routes_lock);
         s.rdtsc_sites.insert(site.at.v);

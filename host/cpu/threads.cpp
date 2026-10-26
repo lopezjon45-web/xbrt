@@ -152,6 +152,10 @@ extern "C" void xbrt_on_gate(GateFrame *frame, ThreadBlock *tb) noexcept
     g_cpu->gate_calls++;
     if (tb->host.depth == 1) tb->host.base_rsp = tb->host.host_rsp;
     tb->host.guest_esp = frame->esp;
+    // A guest callback the handler runs inherits the caller's FP control state, as on the Xbox; full_gate64
+    // restores the frame's copy for the caller afterwards.
+    tb->host.guest_mxcsr = frame->mxcsr;
+    tb->host.guest_fpcw = frame->fpcw;
     g_cpu->on_host_call(*static_cast<GuestThread *>(tb->host.thread), HostCallId::from_raw(uint16_t(frame->eax)), *frame);
 }
 

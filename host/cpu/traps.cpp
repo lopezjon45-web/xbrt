@@ -107,6 +107,7 @@ uint32_t effective_address(Trap &t, const ZydisDecodedOperand &op)
 
 const MmioMap *mmio_at(uint32_t addr)
 {
+    std::lock_guard<std::mutex> hold(g_cpu->routes_lock);
     for (const MmioMap &m : g_cpu->mmio)
         if (addr >= m.base && addr < m.end) return &m;
     return nullptr;
@@ -114,9 +115,16 @@ const MmioMap *mmio_at(uint32_t addr)
 
 const PortMap *port_at(uint16_t port)
 {
+    std::lock_guard<std::mutex> hold(g_cpu->routes_lock);
     for (const PortMap &p : g_cpu->ports)
         if (port >= p.first && port < p.end) return &p;
     return nullptr;
+}
+
+bool rdtsc_site(uint32_t eip)
+{
+    std::lock_guard<std::mutex> hold(g_cpu->routes_lock);
+    return g_cpu->rdtsc_sites.count(eip) != 0;
 }
 
 // Where a memory operand goes: KPCR page 0 for an fs: access, a device for a mapped page, RAM otherwise.
@@ -419,12 +427,22 @@ uint32_t route(Trap &t)
         SwitchToThread();
         return t.eip;
     }
+    {
+        // A site another thread promoted between this thread's fault and its landing now holds a far call that
+        // does not fault: run it in place instead of decoding bytes that are not the ones that trapped.
+        std::lock_guard<std::mutex> hold(s.patch_lock);
+        if (s.promoted.count(t.eip)) {
+            s.traps_patch_wait++;
+            return t.eip;
+        }
+    }
     bool fetch = t.code == STATUS_ACCESS_VIOLATION && t.rec.NumberParameters > 0 && t.rec.ExceptionInformation[0] == 8;
     if (fetch || !readable(t.eip, 1)) fatal_trap(t.tb, format("fault fetching code at 0x%08X", t.eip));
     ZydisDecoder decoder;
     ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32);
-    size_t avail = 1;
-    while (avail < 15 && readable(t.eip + avail, 1)) avail++;
+    // The decode window is the rest of eip's page, then the next page if it is mapped: two VirtualQuery calls at most.
+    size_t avail = std::min<size_t>(15, 0x1000 - (t.eip & 0xFFF));
+    if (avail < 15 && readable(t.eip + avail, 15 - avail)) avail = 15;
     if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, t.bytes, avail, &t.in, t.ops)))
         fatal_trap(t.tb, format("cannot decode the bytes at 0x%08X", t.eip));
 
@@ -450,7 +468,7 @@ uint32_t route(Trap &t)
         fatal_trap(t.tb, format("%s fault on 0x%08X at '%s'", t.write ? "write" : "read", uint32_t(t.addr), disasm(t).c_str()));
     }
     if (t.code == STATUS_PRIVILEGED_INSTRUCTION) {
-        if (t.bytes[0] == 0xEF && s.rdtsc_sites.count(t.eip)) {   // row 4
+        if (t.bytes[0] == 0xEF && rdtsc_site(t.eip)) {   // row 4
             uint64_t tsc = guest_tsc_now();
             gpr(t.c, 0) = uint32_t(tsc);
             gpr(t.c, 2) = uint32_t(tsc >> 32);
@@ -526,7 +544,7 @@ uint32_t route(Trap &t)
     r.edi = uint32_t(c.Rdi);
     r.eflags = c.EFlags;
     uint32_t ebp = uint32_t(c.Rbp);
-    for (int i = 0; i < 32 && ebp >= tb->host.stack_limit && ebp + 8 <= tb->host.stack_base; i++) {
+    for (int i = 0; i < 32 && ebp >= tb->host.stack_limit && ebp <= tb->host.stack_base - 8; i++) {
         r.ebp_chain.push_back({Access::load(host(ebp + 4), 4)});
         uint32_t next = Access::load(host(ebp), 4);
         if (next <= ebp) break;
@@ -570,6 +588,8 @@ extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
            rec.NumberParameters > 1 ? rec.ExceptionInformation[1] : ~0ull,
            rec.NumberParameters > 0 && rec.ExceptionInformation[0] == 1, {}, {}, host(uint32_t(c.Rip))};
     tb->host.guest_esp = uint32_t(c.Rsp);
+    tb->host.guest_mxcsr = c.MxCsr;
+    tb->host.guest_fpcw = c.FltSave.ControlWord;
     uint32_t next = route(t);
     c.Rip = next;
     tb->host.in_trap = 0;

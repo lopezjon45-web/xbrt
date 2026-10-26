@@ -118,7 +118,8 @@ struct CpuState {
     std::vector<bool> id_stub_made;
     std::vector<PatchSite> learned;
 
-    std::mutex routes_lock;   // the tables are read without it from the landing; registration precedes guest code
+    std::set<uint32_t> promoted;   // every fs or privileged site rewritten, so a late-landing thread reruns it in place
+    std::mutex routes_lock;
     std::vector<MmioMap> mmio;
     std::vector<PortMap> ports;
     std::set<uint32_t> rdtsc_sites;

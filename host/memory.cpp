@@ -312,6 +312,7 @@ uint32_t GuestMemory::allocate_virtual(GuestVa *base_io, uint32_t *size_io, uint
             if (!vad_base) return xbox_status::NoMemory;
         } else {
             vad_base = base & ~(kReservationGranularity - 1);
+            vad_size = round_up(base + size, kPage) - vad_base;   // NT: from the 64 KB base to the page-rounded end
             if (!user_range(vad_base, vad_size)) return xbox_status::ConflictingAddresses;
             for (uint32_t p = vad_base / kPage; p < (vad_base + vad_size) / kPage; p++)
                 if (pfn_[p] != Owner::Free) return xbox_status::ConflictingAddresses;
@@ -426,7 +427,7 @@ uint32_t GuestMemory::query_virtual(GuestVa va, XboxMemoryBasicInformation *out)
 
 GuestVa GuestMemory::allocate_contiguous(uint32_t size, uint32_t lowest, uint32_t highest, uint32_t alignment, uint32_t protect)
 {
-    if (size == 0 || !valid_protect(protect)) return {};
+    if (size == 0 || size > ram_ || !valid_protect(protect)) return {};
     if (alignment < kPage) alignment = kPage;
     if (alignment & (alignment - 1)) return {};
     uint32_t pages = round_up(size, kPage) / kPage;
@@ -457,7 +458,8 @@ void GuestMemory::free_contiguous(GuestVa va)
     if (it == contiguous_.end()) return;
     uint32_t pa = va.v - kContiguousBase;
     for (uint32_t p = pa / kPage; p < (pa + it->second.size) / kPage; p++) pfn_[p] = Owner::Free;
-    protect_pages(va.v, it->second.size, PAGE_NOACCESS);
+    // Physical RAM stays reachable through 0x80000000 on the Xbox, so the alias goes back to the view's default.
+    protect_pages(va.v, it->second.size, PAGE_EXECUTE_READWRITE);
     contiguous_.erase(it);
 }
 
@@ -570,7 +572,8 @@ GuestMemory::Statistics GuestMemory::statistics() const
     s.system_pages = system_pages_;
     s.stack_pages = stack_pages_;
     s.pool_pages = 0;
-    s.available_pages = s.total_pages - s.user_pages - s.contiguous_pages - s.system_pages - s.stack_pages;
+    uint32_t used = s.user_pages + s.contiguous_pages + s.system_pages + s.stack_pages;
+    s.available_pages = used < s.total_pages ? s.total_pages - used : 0;
     return s;
 }
 
