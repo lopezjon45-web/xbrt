@@ -139,6 +139,12 @@ private:
 
 enum class CallConv : uint8_t { Stdcall, Cdecl, Fastcall, Thiscall };
 
+// NtSuspendThread's host side. A thread suspended inside an MMIO access would keep the device's lock (the BQL) and stop
+// every other device access, so the thread is suspended only at a point outside one: it is resumed and suspended
+// again until then, for at most 10 ms. `previous` is the suspend count before this suspension.
+enum class SuspendResult : uint8_t { Suspended, Failed, InsideDevice };
+SuspendResult suspend_outside_devices(void *thread, uint32_t *previous);
+
 struct SpawnOptions {
     uint32_t stack_size;      // PsCreateSystemThreadEx's KernelStackSize, or the XBE's stack commit
     int priority;             // Xbox priority mapped to a host priority

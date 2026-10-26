@@ -518,10 +518,19 @@ uint32_t xbox_NtYieldExecution(void)
 
 uint32_t xbox_NtSuspendThread(HANDLE thread, uint32_t *previous)
 {
-    DWORD prev = SuspendThread(thread);
-    if (prev == DWORD(-1)) return xbrt::kStatusUnsuccessful;
-    if (previous) *previous = prev;
-    return xbrt::kStatusSuccess;
+    uint32_t count = 0;
+    switch (xbrt::suspend_outside_devices(thread, &count)) {
+    case xbrt::SuspendResult::Suspended:
+        if (previous) *previous = count;
+        return xbrt::kStatusSuccess;
+    case xbrt::SuspendResult::InsideDevice:
+        xbrt::report_missing({xbrt::MissingKind::Hang, true,
+                              "NtSuspendThread: the thread stayed inside a device register access for 10 ms", {}, "",
+                              GetCurrentThreadId()});
+        return xbrt::kStatusUnsuccessful;
+    case xbrt::SuspendResult::Failed: break;
+    }
+    return xbrt::kStatusUnsuccessful;
 }
 
 uint32_t xbox_NtResumeThread(HANDLE thread, uint32_t *previous)

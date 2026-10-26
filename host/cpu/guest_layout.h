@@ -150,6 +150,7 @@ struct HostPart {
     uint32_t in_trap;         // the landing is running: a second fault there is a landing bug
     SpawnArgs *spawn;
     uint32_t suspended;
+    uint32_t mmio_in_progress;
 };
 
 inline constexpr int32_t kHostRsp = kHostPartOffset + offsetof(HostPart, host_rsp);
