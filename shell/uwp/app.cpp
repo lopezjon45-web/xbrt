@@ -176,19 +176,14 @@ void run_probes()
         return;
     }
     xbrt::run_cpu_probes(*g_memory, [](const xbrt::ProbeLine &p) {
-        std::string begin = "BEGIN probe " + p.name;
-        std::string detail = p.detail.empty() ? "" : " " + p.detail;
+        std::string text = xbrt::probe_text(p);
         switch (p.state) {
         case xbrt::ProbeLine::State::Begin:
-            g_screen.add(begin, LineColour::Grey);
-            xbrt::run_log::run(begin);
+            g_screen.add(text, LineColour::Grey);
+            xbrt::run_log::run(text);
             return;
-        case xbrt::ProbeLine::State::Ok:
-            report("probe", "probe " + p.name + " ok" + detail, LineColour::Green, begin);
-            return;
-        case xbrt::ProbeLine::State::Fail:
-            report("probe", "probe " + p.name + " FAIL" + detail, LineColour::Red, begin);
-            return;
+        case xbrt::ProbeLine::State::Ok: report("probe", text, LineColour::Green, "BEGIN probe " + p.name); return;
+        case xbrt::ProbeLine::State::Fail: report("probe", text, LineColour::Red, "BEGIN probe " + p.name); return;
         }
     });
 }
@@ -234,7 +229,7 @@ void boot(Link link)
         survey(*link.request);
     } else if (link.request) {
         Services services;
-        xbrt::Session::boot(*link.request, services);
+        xbrt::Session::boot(*link.request, services);   // U2 keeps the session; U0 only proves the read
     }
 
     std::string device = xbrt::gfx::device_line();
@@ -310,7 +305,19 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
         if (!link_ || !gfx_tried_ || boot_started_) return;
         boot_started_ = true;
         g_boot_running = true;
-        std::thread(boot, *link_).detach();
+        std::thread([link = *link_] {
+            try {
+                boot(link);
+            } catch (std::exception const &e) {
+                report("shell", std::string("shell FAIL boot thread: ") + e.what(), LineColour::Red);
+                xbrt::run_log::run("END");
+                g_boot_running = false;
+            } catch (hresult_error const &e) {
+                report("shell", "shell FAIL boot thread: " + to_string(e.message()), LineColour::Red);
+                xbrt::run_log::run("END");
+                g_boot_running = false;
+            }
+        }).detach();
     }
 
     void return_to_hub(std::string_view why)
@@ -322,18 +329,25 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
             std::lock_guard<std::mutex> g(g_failure_lock);
             failure = g_first_failure;
         }
+        if (!failure && g_boot_running) failure = Failure{"Interrupted", "boot interrupted by " + std::string(why)};
         xbrt::run_log::shell("return: " + std::string(why));
-        if (link_ && link_->request && !link_->request->return_uri.empty()) {
-            std::u16string uri = xbrt::return_link(link_->request->return_uri, failure ? "error" : "ok",
-                                                   failure ? failure->kind : "", failure ? failure->line : "");
-            xbrt::run_log::shell("return link " + utf8(uri));
-            try {
-                Windows::System::Launcher::LaunchUriAsync(Uri(hstring(std::wstring_view(
-                    reinterpret_cast<const wchar_t *>(uri.data()), uri.size()))));
-            } catch (hresult_error const &e) {
-                xbrt::run_log::shell("return link not launched: " + to_string(e.message()));
-            }
+        if (!link_ || !link_->request || link_->request->return_uri.empty()) return exit_now();
+        std::u16string uri = xbrt::return_link(link_->request->return_uri, failure ? "error" : "ok",
+                                               failure ? failure->kind : "", failure ? failure->line : "");
+        xbrt::run_log::shell("return link " + utf8(uri));
+        try {
+            // Exit only once the launcher has taken the link: exiting first can drop it.
+            Windows::System::Launcher::LaunchUriAsync(Uri(hstring(std::wstring_view(
+                reinterpret_cast<const wchar_t *>(uri.data()), uri.size()))))
+                .Completed([this](auto &&, auto &&) { exit_now(); });
+        } catch (hresult_error const &e) {
+            xbrt::run_log::shell("return link not launched: " + to_string(e.message()));
+            exit_now();
         }
+    }
+
+    void exit_now()
+    {
         try {
             CoreApplication::Exit();
         } catch (hresult_error const &e) {

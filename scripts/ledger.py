@@ -16,7 +16,7 @@ import os
 import sys
 
 COLUMNS = ["image", "title", "title_id", "entry", "verdict", "reason", "xbes", "libraries", "imports_total",
-           "imports_no_bridge", "imports_stub", "fs_sites", "fs_unpromotable", "rdtsc_sites", "nop_sites",
+           "imports_no_bridge", "imports_stub", "fs_sites", "fs_unpromotable", "rdtsc_sites", "privileged_sites",
            "bytes_decoded", "functions", "overrides_placed", "calls_launch_new_image"]
 
 GAP_CLASSES = ["kernel export with no bridge", "stub bridge imported", "library the database does not know",

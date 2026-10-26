@@ -53,8 +53,8 @@ constexpr Expected kReached[] = {
     {0x33, 8, SiteKind::FsMovzxByte, 0, 0x24, 0},
     {0x3B, 7, SiteKind::FsCmp, 6, 0, 0},        {0x42, 7, SiteKind::FsCmpRev, 6, 0, 0},
     {0x49, 3, SiteKind::FsOther, 0, 0, 0},      {0x4C, 2, SiteKind::Rdtsc, 0, 0, 0},
-    {0x55, 1, SiteKind::Nop, 0, 0, 0},          {0x60, 1, SiteKind::Nop, 0, 0, 0},
-    {0x70, 2, SiteKind::Nop, 0, 0, 0},
+    {0x55, 1, SiteKind::Privileged, 0, 0, 0},          {0x60, 1, SiteKind::Privileged, 0, 0, 0},
+    {0x70, 2, SiteKind::Privileged, 0, 0, 0},
 };
 
 xbrt::XbeImage parse(const std::vector<uint8_t> &file)
@@ -95,7 +95,7 @@ TEST(find_sites_classifies_every_reachable_fs_rdtsc_and_nop_form)
     CHECK_EQ(st.fs_sites, 10u);
     CHECK_EQ(st.fs_unpromotable, 1u);
     CHECK_EQ(st.rdtsc_sites, 1u);
-    CHECK_EQ(st.nop_sites, 3u);
+    CHECK_EQ(st.privileged_sites, 3u);
 }
 
 TEST(find_sites_seeds_from_database_functions_and_decodes_each_byte_once)
@@ -112,7 +112,7 @@ TEST(find_sites_seeds_from_database_functions_and_decodes_each_byte_once)
     CHECK_EQ(st.bytes_decoded, 0x57u + 2 + 10 + 5);
     CHECK_EQ(st.functions, 3u);
     CHECK_EQ(st.rdtsc_sites, 2u);
-    CHECK_EQ(st.nop_sites, 4u);
+    CHECK_EQ(st.privileged_sites, 4u);
 }
 
 TEST(find_sites_never_decodes_outside_executable_file_data)

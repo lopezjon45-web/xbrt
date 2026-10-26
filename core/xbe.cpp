@@ -11,6 +11,8 @@
 
 namespace xbrt {
 
+constexpr uint32_t kMaxImageSize = 128u << 20;   // no XBE exceeds the devkit RAM; the code map allocates by it
+
 #include "core/gen/kernel_exports.inc"
 
 namespace {
@@ -132,6 +134,7 @@ Parsed<XbeImage> parse_xbe(std::span<const uint8_t> file)
     uint64_t image_end = uint64_t(x.base.v) + x.image_size;
     if (x.image_size < headers_size || image_end > 0x100000000)
         return fail("image_size: 0x%X does not hold the 0x%X header bytes below 4 GB", x.image_size, headers_size);
+    if (x.image_size > kMaxImageSize) return fail("image_size: 0x%X is larger than the devkit's RAM", x.image_size);
     x.headers.assign(file.begin(), file.begin() + headers_size);
 
     auto header_off = [&](uint32_t va, uint64_t len) -> std::optional<size_t> {

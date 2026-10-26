@@ -84,8 +84,8 @@ void print_plan(const xbrt::XbeImage &x, std::span<const uint8_t> file, bool sit
 
     xbrt::TitlePlan plan = xbrt::plan_title(x, file, symbols);
     const xbrt::CodeMapStats &m = plan.code_map;
-    std::printf("code map: bytes_decoded %u functions %u fs_sites %u rdtsc_sites %u fs_unpromotable %u nop_sites %u\n",
-                m.bytes_decoded, m.functions, m.fs_sites, m.rdtsc_sites, m.fs_unpromotable, m.nop_sites);
+    std::printf("code map: bytes_decoded %u functions %u fs_sites %u rdtsc_sites %u fs_unpromotable %u privileged_sites %u\n",
+                m.bytes_decoded, m.functions, m.fs_sites, m.rdtsc_sites, m.fs_unpromotable, m.privileged_sites);
     std::printf("import slots: %zu\n", plan.imports.size());
     std::printf("overrides: %zu\n", plan.overrides.size());
     for (const xbrt::OverrideSite &o : plan.overrides)

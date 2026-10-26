@@ -2,6 +2,8 @@
 
 #include "core/survey.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -9,6 +11,8 @@
 #include <string>
 
 namespace xbrt {
+
+constexpr uint64_t kMaxXbeBytes = 128u << 20;   // the devkit's whole RAM; DiscIndex::read_all draws the same line
 
 std::string_view boot_stage_name(BootStage s)
 {
@@ -59,7 +63,8 @@ bool write_atomic(const std::u16string &path, const std::string &text)
     if (!f) return false;
     bool ok = fwrite(text.data(), 1, text.size(), f) == text.size() && fflush(f) == 0;
     ok = fclose(f) == 0 && ok;
-    return ok && _wrename(reinterpret_cast<const wchar_t *>(tmp.c_str()), reinterpret_cast<const wchar_t *>(path.c_str())) == 0;
+    return ok && MoveFileExW(reinterpret_cast<const wchar_t *>(tmp.c_str()), reinterpret_cast<const wchar_t *>(path.c_str()),
+                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
 }
 
 }  // namespace
@@ -80,6 +85,7 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Sh
         std::u16string file = dir + request.xbe;
         std::unique_ptr<Source> xbe_file = shell.open_disc(file, error);
         if (!xbe_file) return failed(BootStage::OpenDisc, ascii_path(file) + ": " + error);
+        if (xbe_file->size() > kMaxXbeBytes) return failed(BootStage::ReadXbe, ascii_path(file) + ": larger than any XBE");
         std::vector<uint8_t> bytes(size_t(xbe_file->size()));
         if (!xbe_file->read_at(0, bytes)) return failed(BootStage::ReadXbe, ascii_path(file) + ": read failed");
         snprintf(line, sizeof line, "disc %s (extracted)", ascii_path(dir).c_str());
@@ -149,7 +155,8 @@ Parsed<SurveyTotals> run_survey(std::u16string_view folder, ShellServices &shell
         progress("survey " + std::to_string(i + 1) + "/" + std::to_string(images.size()) + " " + name + ": " +
                  std::string(survey_verdict_name(row.verdict)) + (row.reason.empty() ? "" : " " + row.reason));
         tsv += to_tsv_line(row);
-        write_atomic(tsv_path, tsv);
+        if (!write_atomic(tsv_path, tsv))
+            return std::unexpected("survey.tsv: cannot write it under LocalState (error " + std::to_string(GetLastError()) + ")");
     }
     totals.distinct_builds = uint32_t(builds.size());
     for (const auto &[o, n] : no_bridge) totals.no_bridge_by_titles.push_back({o, n});

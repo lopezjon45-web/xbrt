@@ -112,7 +112,7 @@ struct Fault {
 };
 
 struct VehState {
-    uint32_t code_base = 0, code_end = 0;
+    uint32_t code_base = 0, code_end = 0, gates_end = 0;
     uint32_t resume_cb = 0, exit64 = 0;
     std::atomic<uint32_t> traps{0};
     std::atomic<uint32_t> faults{0};
@@ -142,6 +142,7 @@ LONG CALLBACK veh(EXCEPTION_POINTERS *e)
 {
     CONTEXT *c = e->ContextRecord;
     if (c->Rip < g_veh.code_base || c->Rip >= g_veh.code_end) return EXCEPTION_CONTINUE_SEARCH;
+    // The handler's own C code runs with whatever MXCSR and DF the guest left; NtContinue restores the guest's.
     _mm_setcsr(0x1F80);
     __writeeflags(__readeflags() & ~0x400ull);
     const EXCEPTION_RECORD *r = e->ExceptionRecord;
@@ -160,6 +161,9 @@ LONG CALLBACK veh(EXCEPTION_POINTERS *e)
         if ((n & 63) == 0) SwitchToThread();
         next = uint32_t(c->Rip) + 6;
     } else {
+        // A fault inside the 64-bit gates (a resume that landed in the wrong mode, a trashed r15) must not be
+        // redirected into those same gates: let the process die with the probe's BEGIN line as the last record.
+        if (c->SegCs == kLongCs && c->Rip >= g_veh.code_base && c->Rip < g_veh.gates_end) return EXCEPTION_CONTINUE_SEARCH;
         if (g_veh.stray.fetch_add(1, std::memory_order_relaxed) == 0) {
             Fault &f = g_veh.first_stray;
             f = {r->ExceptionCode, c->SegCs, c->Rip, r->NumberParameters > 1 ? r->ExceptionInformation[1] : 0,
@@ -219,7 +223,14 @@ struct Probes {
         return true;
     }
 
-    uint32_t run(GuestThread &t, uint32_t payload) { return enter(t.block, t.esp, payload); }
+    uint32_t run(GuestThread &t, uint32_t payload)
+    {
+        if (!payload) {
+            g_veh.stray.fetch_add(1, std::memory_order_relaxed);
+            return 0;
+        }
+        return enter(t.block, t.esp, payload);
+    }
 
     double ns_per_op(LARGE_INTEGER t0, LARGE_INTEGER t1, uint32_t ops) const
     {
@@ -251,6 +262,7 @@ struct Probes {
         enter = reinterpret_cast<Enter>(static_cast<uintptr_t>(enter_va));
         g_veh.resume_cb = resume_va;
         g_veh.exit64 = exit64;
+        g_veh.gates_end = code.cursor;
         return true;
     }
 

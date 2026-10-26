@@ -29,6 +29,13 @@ inline constexpr HleRow kHleTable[] = {
     {"XAPILIB", "XapiBootToDash", HleId::XapiBootToDash, 12},
     {"XAPILIB", "OutputDebugStringA", HleId::OutputDebugStringA, 4},
 };
+constexpr bool hle_rows_in_id_order()
+{
+    for (size_t i = 0; i < std::size(kHleTable); i++)
+        if (kHleTable[i].id != HleId(i)) return false;
+    return true;
+}
 static_assert(std::size(kHleTable) == static_cast<size_t>(HleId::Count_), "one row per HleId");
+static_assert(hle_rows_in_id_order(), "kHleTable is indexed by HleId");
 
 }  // namespace xbrt

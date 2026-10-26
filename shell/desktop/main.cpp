@@ -159,13 +159,7 @@ int main(int argc, char **argv)
 
     line(device_line());
 
-    ok = xbrt::run_cpu_probes(**memory, [](const xbrt::ProbeLine &p) {
-        switch (p.state) {
-        case xbrt::ProbeLine::State::Begin: line("BEGIN probe " + p.name); break;
-        case xbrt::ProbeLine::State::Ok: line("probe " + p.name + " ok " + p.detail); break;
-        case xbrt::ProbeLine::State::Fail: line("probe " + p.name + " FAIL " + p.detail); break;
-        }
-    }) && ok;
+    ok = xbrt::run_cpu_probes(**memory, [](const xbrt::ProbeLine &p) { line(xbrt::probe_text(p)); }) && ok;
     line("END");
     if (g_run) std::fclose(g_run);
     return ok ? 0 : 1;

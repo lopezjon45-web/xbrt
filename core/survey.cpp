@@ -18,7 +18,7 @@ constexpr size_t kReasonNames = 3;
 
 constexpr std::string_view kColumns[] = {
     "image", "title", "title_id", "entry", "verdict", "reason", "xbes", "libraries", "imports_total",
-    "imports_no_bridge", "imports_stub", "fs_sites", "fs_unpromotable", "rdtsc_sites", "nop_sites", "bytes_decoded",
+    "imports_no_bridge", "imports_stub", "fs_sites", "fs_unpromotable", "rdtsc_sites", "privileged_sites", "bytes_decoded",
     "functions", "overrides_placed", "calls_launch_new_image",
 };
 
@@ -89,6 +89,9 @@ void survey_into(SurveyRow &row, std::span<const uint8_t> file)
     row.verdict = row.imports_no_bridge.empty() && row.code_map.fs_unpromotable == 0 ? SurveyVerdict::Ready
                                                                                       : SurveyVerdict::NamedGaps;
     row.reason = gap_summary(row);
+    for (HleId id : plan.overrides_missing)
+        row.reason += (row.reason.empty() ? "" : "; ") + std::string("override not placed: ") + std::string(kHleTable[size_t(id)].symbol);
+    for (const std::string &note : plan.notes) row.reason += (row.reason.empty() ? "" : "; ") + note;
 }
 
 std::string cell(std::string_view v)
@@ -197,7 +200,7 @@ std::string to_tsv_line(const SurveyRow &row)
         num(m.fs_sites),
         num(m.fs_unpromotable),
         num(m.rdtsc_sites),
-        num(m.nop_sites),
+        num(m.privileged_sites),
         num(m.bytes_decoded),
         num(m.functions),
         joined(row.overrides_placed, [](HleId id) { return std::string(kHleTable[size_t(id)].symbol); }),

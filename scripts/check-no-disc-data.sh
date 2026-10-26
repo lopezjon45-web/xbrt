@@ -4,7 +4,7 @@
 # The tree check lists tracked files and the untracked files `git add -A` would add, and fails on any path matching
 # scripts/disc-data-patterns.txt (images, XBEs, packages, keys, console output). The content check greps every such
 # file for the generic strings below and, when the local-only list exists, for the title ids, game names and console
-# strings it holds; that list lives outside the repository on purpose, so the banned strings never appear here.
+# strings it holds (as fixed strings); that list lives outside the repository on purpose, so the banned strings never appear here.
 # With --history the same content check runs over `git log -p` of the range (the pre-push hook passes the commits
 # about to leave the machine). CI runs the tree and content checks; the hook runs all three.
 set -euo pipefail
@@ -15,20 +15,35 @@ local_list=${XBRT_BANNED_PATTERNS:-/Users/jonlopez/mesa-one-s/xbrt-local/banned-
 status=0
 
 generic_regex='\.xiso\.iso|192\.168\.[0-9]+\.[0-9]+:11443|LocalState\\\\launch\.txt:|PackageFullName"'
-content_regex=$generic_regex
-if [ -f "$local_list" ]; then
-    local_regex=$(grep -v -E '^\s*(#|$)' "$local_list" | sed 's/[.[\*^$]/\\&/g' | paste -sd '|' -)
-    [ -z "$local_regex" ] || content_regex="$generic_regex|$local_regex"
-fi
+
+# scan <file or -> : the generic regex, then the local list as fixed strings (no escaping, so names with parentheses
+# and plus signs match literally). grep exit 2 is an error, never a clean file.
+scan() {
+    local rc=0 out
+    out=$(grep -n -E "$generic_regex" "$1"); rc=$?
+    [ $rc -le 1 ] || { echo "grep failed on $1"; return 2; }
+    if [ -f "$local_list" ]; then
+        local more
+        more=$(grep -v -E '^\s*(#|$)' "$local_list" | grep -n -F -f /dev/stdin "$1"); rc=$?
+        [ $rc -le 1 ] || { echo "grep failed on $1"; return 2; }
+        out="$out${more:+${out:+
+}$more}"
+    fi
+    [ -z "$out" ] || { printf '%s\n' "$out"; return 1; }
+    return 0
+}
 
 if [ "${1:-}" = "--history" ]; then
     range=${2:?usage: check-no-disc-data.sh --history <git range>}
-    hits=$(git -C "$repo" log -p --no-color "$range" -- . ':!external' ':!scripts/check-no-disc-data.sh' | grep -n -E "$content_regex" | grep -v '^[0-9]*:[-+]\{3\}' | head -20 || true)
-    if [ -n "$hits" ]; then
+    patch=$(mktemp)
+    git -C "$repo" log -p --no-color "$range" -- . ':!external' ':!scripts/check-no-disc-data.sh' > "$patch"
+    if ! hits=$(scan "$patch" | grep -v '^[0-9]*:[-+]\{3\}'); then
+        rm -f "$patch"
         echo "FAIL disc or console data in the commits $range:"
-        echo "$hits" | cut -c1-160
+        echo "$hits" | head -20 | cut -c1-160
         exit 1
     fi
+    rm -f "$patch"
     echo "no disc data in the history $range"
     exit 0
 fi
@@ -52,9 +67,9 @@ done < <(git -C "$repo" ls-files -o --exclude-standard -z -- "${specs[@]}")
 
 while IFS= read -r -d '' path; do
     case "$path" in external/*|core/gen/*|scripts/check-no-disc-data.sh) continue ;; esac
-    if hit=$(grep -n -E "$content_regex" "$repo/$path" | head -3); then
+    if ! hit=$(scan "$repo/$path"); then
         echo "FAIL disc or console data in $path:"
-        echo "$hit" | cut -c1-160
+        echo "$hit" | head -3 | cut -c1-160
         status=1
     fi
 done < <(git -C "$repo" ls-files -z; git -C "$repo" ls-files -o --exclude-standard -z)

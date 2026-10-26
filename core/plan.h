@@ -16,7 +16,7 @@ enum class SiteKind : uint8_t {
     FsLoad, FsStore, FsStoreEsp, FsStoreImm, FsPush, FsPop, FsMovzxByte, FsCmp, FsCmpRev,
     FsOther,
     Rdtsc,
-    Nop,
+    Privileged,   // wbinvd, invd, cli, sti: patched to nops; in, out and cr moves stay with the trap router
 };
 
 std::string_view site_kind_name(SiteKind k);
@@ -32,7 +32,7 @@ struct PatchSite {
 };
 
 struct CodeMapStats {
-    uint32_t bytes_decoded, functions, fs_sites, rdtsc_sites, fs_unpromotable, nop_sites;
+    uint32_t bytes_decoded, functions, fs_sites, rdtsc_sites, fs_unpromotable, privileged_sites;
 };
 
 // Recursive-descent decode (Zydis, 32-bit) from the entry, every XbSymbolDatabase function and every direct call or

@@ -11,7 +11,10 @@ namespace {
 constexpr uint64_t kSector = 2048;
 constexpr char kMagic[] = "MICROSOFT*XBOX*MEDIA";
 constexpr size_t kMagicLen = sizeof kMagic - 1;
-constexpr uint64_t kBases[] = {0x00000000, 0x0000FD90, 0x00030600, 0x0FD90000, 0x18300000};
+// Partition bases the Mac lever (xbox-runtime/scripts/xiso_extract.py) found all four local images under: a bare
+// XISO, the redump game partition after the video partition, and two rebuilt layouts. Route 2 also listed 0xFD90
+// and 0x30600, which are not sector-aligned and matched nothing; they are gone.
+constexpr uint64_t kBases[] = {0x00000000, 0x18300000, 0x0FD90000, 0x02080000};
 constexpr uint32_t kEntryHeader = 0x0E;
 constexpr uint8_t kAttrDirectory = 0x10;
 constexpr uint32_t kMaxDirectoryBytes = 16u << 20;

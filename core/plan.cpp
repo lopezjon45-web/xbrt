@@ -22,7 +22,7 @@ std::string_view site_kind_name(SiteKind k)
     case SiteKind::FsCmpRev: return "fs-cmp-rev";
     case SiteKind::FsOther: return "fs-other";
     case SiteKind::Rdtsc: return "rdtsc";
-    case SiteKind::Nop: return "nop";
+    case SiteKind::Privileged: return "privileged";
     }
     return "?";
 }
@@ -136,8 +136,8 @@ std::vector<PatchSite> find_sites(const XbeImage &xbe, std::span<const uint8_t> 
                 form = FsForm{SiteKind::Rdtsc, 0, 0, 0};
                 st.rdtsc_sites++;
             } else if (is_nop_kind(in.mnemonic)) {
-                form = FsForm{SiteKind::Nop, 0, 0, 0};
-                st.nop_sites++;
+                form = FsForm{SiteKind::Privileged, 0, 0, 0};
+                st.privileged_sites++;
             }
             if (form) {
                 PatchSite site{at, in.length, form->kind, form->reg, form->disp, form->imm, {}};

@@ -154,7 +154,8 @@ std::string GuestMemory::identity_check()
     ULONG old = 0;
     if (!VirtualProtectFromApp(ptr(user), kPage, PAGE_EXECUTE_READWRITE, &old))
         return format("identity FAIL rwx 0x%08X err=%lu", user, static_cast<unsigned long>(GetLastError()));
-    if (!VirtualProtectFromApp(ptr(user), kPage, PAGE_READWRITE, &old))
+    ULONG before = old;
+    if (!VirtualProtectFromApp(ptr(user), kPage, before, &old))
         return format("identity FAIL rw 0x%08X err=%lu", user, static_cast<unsigned long>(GetLastError()));
     return format("identity ok 0x%08X=0x%08X=0x%08X rwx", user, kContiguousBase + user, kTiledBase + user);
 }
