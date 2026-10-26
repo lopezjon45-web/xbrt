@@ -596,8 +596,9 @@ ExitReason Session::run()
                                 s.cpu->counters().live_guest_threads));
         }
         CpuCounters now = s.cpu->counters();
-        for (const std::string &line : {counters_line(now, before), xemu_counters_line()}) {
-            if (line.empty()) continue;
+        std::vector<std::string> lines{counters_line(now, before)};
+        if (std::optional<std::string> devices = xemu_counters_line()) lines.push_back(*devices);
+        for (const std::string &line : lines) {
             if (s.show_counters) s.shell->counters(line);
             if (seconds % kCountersLogSeconds == 0) s.shell->log(line);
         }

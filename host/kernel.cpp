@@ -519,7 +519,7 @@ uint32_t xbox_NtYieldExecution(void)
 uint32_t xbox_NtSuspendThread(HANDLE thread, uint32_t *previous)
 {
     uint32_t count = 0;
-    switch (xbrt::suspend_outside_devices(thread, &count)) {
+    switch (xbrt::suspend_outside_landing(thread, &count)) {
     case xbrt::SuspendResult::Suspended:
         if (previous) *previous = count;
         return xbrt::kStatusSuccess;

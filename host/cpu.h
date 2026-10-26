@@ -144,7 +144,7 @@ enum class CallConv : uint8_t { Stdcall, Cdecl, Fastcall, Thiscall };
 // landing: it is resumed and suspended again until then, for at most 10 ms. `previous` is the suspend count before
 // this suspension.
 enum class SuspendResult : uint8_t { Suspended, Failed, InsideTrap };
-SuspendResult suspend_outside_devices(void *thread, uint32_t *previous);
+SuspendResult suspend_outside_landing(void *thread, uint32_t *previous);
 
 struct SpawnOptions {
     uint32_t stack_size;      // PsCreateSystemThreadEx's KernelStackSize, or the XBE's stack commit

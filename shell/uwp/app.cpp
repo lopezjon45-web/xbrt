@@ -155,7 +155,6 @@ struct Services final : xbrt::ShellServices {
         constexpr std::string_view kLab = "guest: lab ";
         if (line.starts_with(kLab)) g_screen.add(std::string(line.substr(7)), LineColour::White);
     }
-    // Each counters line replaces the last one that starts with its first word: "counters", then the devices' "nv2a".
     void counters(std::string_view line) override
     {
         g_screen.replace(line.substr(0, line.find(' ') + 1), line, LineColour::Grey);

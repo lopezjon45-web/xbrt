@@ -69,8 +69,6 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # nxdk_pgraph_tests from a pinned commit, built as its own CI builds it, extracted into a lab folder with
-  # lab/pgraph-tests/disc's config (one suite, autorun). It runs as a known-failure lab until it completes.
   pgraph-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 45

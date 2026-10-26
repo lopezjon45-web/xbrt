@@ -78,7 +78,6 @@ std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
     for (unsigned i = 0; i < count; i++) {
         const XbrtBar &b = bars[i];
         char text[160];
-        // The NV2A's BAR1 is all of RAM, which the tiled view at 0xF0000000 already is, so it needs no trap.
         if (b.ram_alias) {
             if (b.size != memory.ram_bytes()) {
                 snprintf(text, sizeof text, "xemu %s BAR%u aliases 0x%X bytes of RAM, not all 0x%X", b.device, b.index,
@@ -115,9 +114,9 @@ std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
 
 void select_xemu_renderer(XbrtRenderer renderer) { g_renderer = renderer; }
 
-std::string xemu_counters_line()
+std::optional<std::string> xemu_counters_line()
 {
-    if (!g_attached) return {};
+    if (!g_attached) return std::nullopt;
     XbrtCounters c;
     xbrt_xemu_counters(&c);
     char text[192];

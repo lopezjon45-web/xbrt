@@ -1,9 +1,5 @@
 #include "../nv2a.h"
 
-// xemu's NV2A with the null renderer behind the trap router. The service routine runs on the fork's timer thread and
-// does what Direct3D's does: it masks the NV2A's interrupt enable and queues a DPC, which reads and acknowledges each
-// unit through MMIO and restores the enable.
-
 #define NV2A_BUS_LEVEL 3
 
 static KINTERRUPT interrupt;
@@ -80,7 +76,7 @@ void __cdecl lab_entry(void)
     pb[n++] = nv_method(0, NV097_SET_SEMAPHORE_OFFSET, 1), pb[n++] = 0;
     pb[n++] = nv_method(0, NV097_BACK_END_WRITE_SEMAPHORE_RELEASE, 1), pb[n++] = 0x00C0FFEE;
     while (n < 16) pb[n++] = nv_method(0, NV097_NO_OPERATION, 1), pb[n++] = 0;
-    nv_channel_setup(MmGetPhysicalAddress(pb), 0xFFF, MmGetPhysicalAddress((PVOID)semaphore), 0);
+    nv_channel_setup(MmGetPhysicalAddress(pb), 0xFFF, MmGetPhysicalAddress((PVOID)semaphore), NV_CONTEXT_SWITCH_PENDING);
     nv_wr(NV_PGRAPH + PGRAPH_INTR_EN, PGRAPH_INTR_CONTEXT_SWITCH);
     nv_wr(NV_PMC + PMC_INTR_EN_0, PMC_INTR_EN_0_HARDWARE);
     nv_wr(NV_USER + USER_DMA_PUT, n * 4);

@@ -279,7 +279,7 @@ CpuCounters Cpu::counters() const
 
 uint64_t Cpu::guest_tsc() const { return guest_tsc_now(); }
 
-SuspendResult suspend_outside_devices(void *thread, uint32_t *previous)
+SuspendResult suspend_outside_landing(void *thread, uint32_t *previous)
 {
     DWORD id = GetThreadId(thread);
     ThreadBlock *tb = nullptr;
@@ -296,7 +296,7 @@ SuspendResult suspend_outside_devices(void *thread, uint32_t *previous)
         CONTEXT context{};
         context.ContextFlags = CONTEXT_CONTROL;
         GetThreadContext(thread, &context);
-        if (!tb || *static_cast<volatile uint32_t *>(&tb->host.in_trap) == 0) {
+        if (!tb || *static_cast<volatile uint32_t *>(&tb->host.in_landing) == 0) {
             *previous = count;
             return SuspendResult::Suspended;
         }

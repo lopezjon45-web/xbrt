@@ -29,8 +29,8 @@ static void test_refuse(XbrtRefusal kind, const char *what)
 
 static void test_log(const char *line) { printf("  log: %s\n", line); }
 
-/* A line's level changes, in order. The NV2A recomputes its line on every vblank, so calls that keep the level are
- * not recorded; any call without the BQL is. */
+/* The NV2A recomputes its line on every vblank, so calls that keep the level are not recorded; any call without the
+ * BQL is. */
 typedef struct IrqCall {
     unsigned line;
     int level;
@@ -415,7 +415,6 @@ static Result apu_xgscnt_off_then_48k(void)
     RESULT(ok, "off %u then %u; on: %.0f samples per second", off0, off1, rate);
 }
 
-/* NV2A BAR0 blocks (nv2a.c's blocktable) and the RAMIN aperture. */
 enum {
     NV2A_PMC = 0x000000,
     NV2A_PFIFO = 0x002000,
@@ -431,7 +430,6 @@ static void nv2a_w(uint32_t offset, uint32_t value) { xbrt_xemu_write(BAR_NV2A, 
 
 static XbrtBar g_bars[8];
 
-/* Defect: the NV2A not created, its BAR0 not flattened onto its blocks, or its RAM BAR mistaken for registers. */
 static Result nv2a_boot0_and_ram_bar(void)
 {
     uint32_t boot0 = nv2a_r(NV2A_PMC + NV_PMC_BOOT_0);
@@ -441,7 +439,6 @@ static Result nv2a_boot0_and_ram_bar(void)
     RESULT(ok, "boot0 0x%08X, BAR1 ram alias %u index %u size 0x%X", boot0, ram->ram_alias, ram->index, ram->size);
 }
 
-/* RAMIN layout of the hand-built channel, and pfifo.c's RAMHT hash for a 4 KB table on channel 0. */
 enum { RAMHT = 0x10000, DMA_PUSH_BUFFER = 0x20000, DMA_SEMAPHORE = 0x20010, KELVIN = 0x20020 };
 enum { H_KELVIN = 0x11, H_SEMAPHORE = 0x12 };
 enum { PUSH_BUFFER = 0x100000, SEMAPHORE = 0x101000 };
@@ -469,9 +466,6 @@ static void ramht_entry(uint32_t handle, uint32_t instance)
 
 static uint32_t method(uint32_t subchannel, uint32_t m, uint32_t count) { return count << 18 | subchannel << 13 | m; }
 
-/* Defect: a push buffer PFIFO never reads (a lost kick, a wrong RAM base), a context switch whose interrupt never
- * reaches the line or cannot be acknowledged through MMIO from another thread, or a semaphore release that does not
- * land in guest RAM. The test thread plays the ISR. */
 static Result nv2a_push_buffer_context_switch_semaphore(void)
 {
     XbrtCounters before;
@@ -522,8 +516,6 @@ static Result nv2a_push_buffer_context_switch_semaphore(void)
            (unsigned long long)(after.nv2a_methods - before.nv2a_methods));
 }
 
-/* Defect: a renderer that is not upstream's never reached through the PGRAPHRenderer seam, or a draw that is not one
- * begin and one end. Runs on the channel the push-buffer test left bound. */
 static Result probe_counts_one_draw(void)
 {
     XbrtProbeCounts p0 = xbrt_probe_counts;
@@ -548,8 +540,6 @@ static Result probe_counts_one_draw(void)
            (unsigned long long)ends, get == n * 4, (unsigned long long)(c1.nv2a_draws - c0.nv2a_draws));
 }
 
-/* Defect: no vblank (the clock thread never calls the display hook), or one at a rate a title's frame pacing would
- * notice. */
 static Result nv2a_vblank_rate(void)
 {
     nv2a_w(NV2A_PCRTC + NV_PCRTC_INTR_EN_0, NV_PCRTC_INTR_EN_0_VBLANK);
@@ -571,8 +561,6 @@ static Result nv2a_vblank_rate(void)
     RESULT(ok, "line rose %d (PMC 0x%08X), %.2f vblanks per second, dropped %d", rose, pmc, rate, dropped);
 }
 
-/* Defect: a PTIMER alarm that never fires (no QEMU_CLOCK_VIRTUAL timer, or the clock thread waiting on a stale
- * deadline), or one that fires a frame late. */
 static Result nv2a_ptimer_alarm(void)
 {
     LARGE_INTEGER f, t0, t1;

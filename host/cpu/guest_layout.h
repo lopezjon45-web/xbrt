@@ -147,7 +147,7 @@ struct HostPart {
     uint32_t exited;
     void *host_thread;
     uint32_t host_thread_id;
-    uint32_t in_trap;         // the landing is running: a second fault there is a landing bug; no suspension here
+    uint32_t in_landing;
     SpawnArgs *spawn;
     uint32_t suspended;
 };

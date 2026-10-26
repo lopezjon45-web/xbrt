@@ -1,12 +1,5 @@
 #include "../nv2a.h"
 
-// PFIFO under load. The guest writes push-buffer words with ordinary stores, then stores DMA_PUT, which traps; PFIFO
-// must never read a word the guest had not finished writing and never miss a kick. 20000 kicks of one 16-byte packet
-// (SET_ZSTENCIL_CLEAR_VALUE, then SET_COLOR_CLEAR_VALUE carrying the kick number), even kicks written with four plain
-// stores and odd ones with one non-temporal store, while a second guest thread reads PFIFO and PGRAPH registers the
-// whole time. A stale word shows as a colour clear value that is not the kick's. The non-temporal kicks can falsify
-// the assumption that the trap drains a write-combining buffer before PFIFO reads, never prove it.
-
 #define KICKS 20000u
 #define RING 0x10000u
 #define PACKET 16u
@@ -65,8 +58,7 @@ void __cdecl lab_entry(void)
     ULONG *ring = MmAllocateContiguousMemory(RING);
     PVOID semaphore = MmAllocateContiguousMemory(0x1000);
     if (!ring || !semaphore) fail("MmAllocateContiguousMemory: ", 0, 0);
-    nv_channel_setup(MmGetPhysicalAddress(ring), RING - 1, MmGetPhysicalAddress(semaphore), 1);
-    // Sixteen bytes, so every packet after it is 16-byte aligned for the non-temporal store.
+    nv_channel_setup(MmGetPhysicalAddress(ring), RING - 1, MmGetPhysicalAddress(semaphore), NV_CONTEXT_BOUND);
     ring[0] = nv_method(0, NV097_SET_OBJECT, 1);
     ring[1] = H_KELVIN;
     ring[2] = nv_method(0, NV097_NO_OPERATION, 1);
@@ -82,7 +74,7 @@ void __cdecl lab_entry(void)
     ULONG put = PACKET;
     for (ULONG i = 0; i < KICKS; i++) {
         if (put + PACKET + 4 > RING) {
-            ring[put / 4] = 1;   // a jump to offset 0
+            ring[put / 4] = nv_jump(0);
             put = 0;
             nv_wr(NV_USER + USER_DMA_PUT, put);
             drain(put, i);

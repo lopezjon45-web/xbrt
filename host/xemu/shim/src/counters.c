@@ -2,13 +2,9 @@
 #include "hw/xbox/mcpx/apu/apu_debug.h"
 #include "hw/xbox/nv2a/nv2a_regs.h"
 
-/* Each counter has one writer: the PFIFO thread for the PGRAPH ones, the clock thread for vblanks. */
 static uint64_t g_methods, g_draws, g_flips, g_vblanks;
 
-static void add(uint64_t *counter, uint64_t n)
-{
-    __atomic_store_n(counter, __atomic_load_n(counter, __ATOMIC_RELAXED) + n, __ATOMIC_RELAXED);
-}
+static void add(uint64_t *counter, uint64_t n) { __atomic_fetch_add(counter, n, __ATOMIC_RELAXED); }
 
 void xbrt_trace_nv2a_pgraph_method(uint32_t subchannel, uint32_t graphics_class, uint32_t method, const char *name,
                                    uint32_t offset, uint32_t parameter)

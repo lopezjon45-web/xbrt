@@ -1,16 +1,11 @@
-/* A renderer that is not upstream's, through upstream's PGRAPHRenderer ops table, with no vendored file changed: it
- * counts the ops PGRAPH calls and otherwise answers as the null renderer does. sync, flush and process_pending must
- * match null/renderer.c, or PFIFO waits for a flush that never completes. */
+/* sync, flush and process_pending must match null/renderer.c, or PFIFO waits for a flush that never completes. */
 #include "renderers/probe.h"
 
 #include "hw/xbox/nv2a/nv2a_int.h"
 
 XbrtProbeCounts xbrt_probe_counts;
 
-static void count(uint64_t *counter)
-{
-    __atomic_store_n(counter, __atomic_load_n(counter, __ATOMIC_RELAXED) + 1, __ATOMIC_RELAXED);
-}
+static void count(uint64_t *counter) { __atomic_fetch_add(counter, 1, __ATOMIC_RELAXED); }
 
 static void probe_init(NV2AState *d, Error **errp)
 {

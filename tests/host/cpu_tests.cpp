@@ -54,6 +54,7 @@ struct P {
     P &mov_ecx_imm(uint32_t v) { return raw({0xB9}).u32(v); }
     P &mov_edx_imm(uint32_t v) { return raw({0xBA}).u32(v); }
     P &call_ecx() { return raw({0xFF, 0xD1}); }
+    P &in_eax_dx() { return raw({0xED}); }
     P &jmp_far_ptr(uint32_t ptr) { return raw({0xFF, 0x2D}).u32(ptr); }
 };
 
@@ -358,7 +359,7 @@ struct Tests {
         cpu.map_ports({0x80C4, 4}, device);
         P p;
         p.raw({0x66, 0xBA, 0xC4, 0x80});   // mov dx, 0x80C4
-        p.raw({0xED});                     // in eax, dx
+        p.in_eax_dx();
         p.raw({0x89, 0xC3});               // mov ebx, eax
         p.raw({0xEF});                     // out dx, eax
         p.raw({0xE4, 0x60});               // in al, 0x60
@@ -526,8 +527,6 @@ struct Tests {
                 detail};
     }
 
-    // Defect: a thread left suspended inside an MMIO access or anywhere else in the trap landing, holding the device's
-    // lock or routes_lock, or one never suspended once it is outside.
     Result suspend_scope()
     {
         struct Device final : MmioDevice {
@@ -558,11 +557,11 @@ struct Tests {
         DWORD parked = WaitForSingleObject(device.parked, 5000);
         uint32_t previous = 0;
         auto start = std::chrono::steady_clock::now();
-        SuspendResult inside = suspend_outside_devices(h, &previous);
+        SuspendResult inside = suspend_outside_landing(h, &previous);
         auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
         device.park = false;
         SetEvent(device.release);
-        SuspendResult outside = suspend_outside_devices(h, &previous);
+        SuspendResult outside = suspend_outside_landing(h, &previous);
         uint32_t before = device.reads;
         Sleep(30);
         uint32_t after = device.reads;
@@ -574,7 +573,6 @@ struct Tests {
         bool mmio_ok = parked == WAIT_OBJECT_0 && inside == SuspendResult::InsideTrap && waited >= 10 &&
                        outside == SuspendResult::Suspended && previous == 0 && after == before && exited == WAIT_OBJECT_0;
 
-        // A port access runs in the landing too, which takes routes_lock (mmio_at, port_at) on every trap.
         struct Port final : PortDevice {
             HANDLE parked = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             HANDLE release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -590,13 +588,13 @@ struct Tests {
         cpu.map_ports({0x80F0, 4}, port);
         P q;
         q.mov_edx_imm(0x80F0);
-        q.raw({0xED});   // in eax, dx
+        q.in_eax_dx();
         q.ret();
         GuestThread &u = GuestThread::spawn({code.put(q.b)}, std::span<const uint32_t>{}, SpawnOptions{0x20000, 8, false, 0});
         HANDLE uh = detail::thread_handle(u);
         DWORD port_parked = WaitForSingleObject(port.parked, 5000);
         uint32_t port_previous = 0;
-        SuspendResult in_landing = suspend_outside_devices(uh, &port_previous);
+        SuspendResult in_landing = suspend_outside_landing(uh, &port_previous);
         if (in_landing == SuspendResult::Suspended) ResumeThread(uh);
         SetEvent(port.release);
         DWORD port_exited = WaitForSingleObject(uh, 5000);

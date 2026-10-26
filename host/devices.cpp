@@ -1,7 +1,3 @@
-// The device models, each an MmioDevice on Cpu::map_mmio. The two USB host controllers are the fork's OHCI model, its
-// pad fed by the fork's input reader from the shell's xbox_shell_pad_read; the APU and the NV2A are upstream xemu's
-// (host/xemu). The fork's own NV2A model stays off (xbox_frontend_nv2a_attached is 0), so its kernel paths that read
-// NV2A registers directly never run; one that does is a named Missing.
 #include "host/kernel.h"
 
 #include "core/devices.h"
@@ -83,7 +79,6 @@ int xbox_frontend_nv2a_attached(void) { return 0; }
 // No keyboard: the console has none.
 int xbox_FramebufferKeyDown(int) { return 0; }
 
-// No push-buffer executor: xemu's PFIFO reads the push buffer, so nothing is queued behind the title.
 uint32_t xbox_Nv2aBacklog(void) { return 0; }
 int xbox_Nv2aRegIsHooked(uint32_t) { return 0; }
 

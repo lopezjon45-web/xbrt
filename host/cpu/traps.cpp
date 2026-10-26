@@ -589,7 +589,7 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
 {
     CONTEXT *c = e->ContextRecord;
     ThreadBlock *tb = t_block;
-    if (!tb || tb->host.in_trap || tb->host.depth == 0) return EXCEPTION_CONTINUE_SEARCH;
+    if (!tb || tb->host.in_landing || tb->host.depth == 0) return EXCEPTION_CONTINUE_SEARCH;
     bool guest = c->SegCs == kCompatCs, gate = c->SegCs == kLongCs && in_gate_region(c->Rip);
     if (!guest && !gate) return EXCEPTION_CONTINUE_SEARCH;
     _mm_setcsr(kAbiMxcsr);
@@ -608,10 +608,9 @@ LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e)
     return EXCEPTION_CONTINUE_EXECUTION;
 }
 
-// in_trap is set here, not in the VEH: a thread suspended on its way in from NtContinue holds nothing yet.
 extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
 {
-    tb->host.in_trap = 1;
+    tb->host.in_landing = 1;
     if (tb->host.depth == 1) tb->host.base_rsp = tb->host.host_rsp;
     CONTEXT &c = tb->trap.ctx;
     const EXCEPTION_RECORD &rec = tb->trap.rec;
@@ -623,7 +622,7 @@ extern "C" [[noreturn]] void xbrt_trap_landing(ThreadBlock *tb)
     tb->host.guest_fpcw = c.FltSave.ControlWord;
     uint32_t next = route(t);
     c.Rip = next;
-    tb->host.in_trap = 0;
+    tb->host.in_landing = 0;
     reinterpret_cast<ResumeFn>(static_cast<uintptr_t>(g_cpu->gates.resume64))(&c);
     for (;;) {}
 }

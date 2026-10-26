@@ -149,7 +149,7 @@ static QEMUTimer g_vblank;
 static int64_t g_vblank_period_ns;
 
 /* xemu latches the NV2A's vblank from its UI's display refresh (nv2a_vga_gfx_update); here the clock thread is that
- * refresh. A late tick is dropped rather than made up in a burst. */
+ * refresh. */
 static void vblank(void *unused)
 {
     (void)unused;

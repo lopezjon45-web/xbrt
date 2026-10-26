@@ -14,8 +14,6 @@ typedef enum XbrtRefusal {
     XBRT_REFUSE_FEATURE,           /* a refused shim call reached, an assert, abort or exit in device code, a map change */
 } XbrtRefusal;
 
-/* The PGRAPH renderer behind the NV2A: upstream's null renderer, or host/xemu/renderers/probe.c, which counts the ops
- * PGRAPH calls (the seam's test). */
 typedef enum XbrtRenderer {
     XBRT_RENDERER_NULL,
     XBRT_RENDERER_PROBE,
@@ -27,7 +25,7 @@ typedef struct XbrtHost {
     uint32_t ram_bytes;
     uint64_t device_cores;     /* affinity of every thread the xemu side creates */
     unsigned voice_workers;    /* the APU's VP mixing threads; 0 lets upstream pick one per logical core */
-    double vblank_hz;          /* the display refresh the clock thread calls the NV2A's GraphicHwOps hook at */
+    double vblank_hz;
     XbrtRenderer renderer;
     /* A device's interrupt line changed level. Called with the BQL held, from any thread: it stores the level and
      * wakes the interrupt thread, and never calls guest code or blocks. */

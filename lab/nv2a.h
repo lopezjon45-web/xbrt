@@ -1,8 +1,5 @@
 #pragma once
 
-// One NV2A DMA channel built by hand, as a driver does before its first push buffer: no pbkit, no D3D. Register
-// offsets and fields are upstream xemu's nv2a_regs.h; the NV097 method numbers are nxdk's pbkit nv_regs.h.
-
 #include "lab.h"
 
 #define NV2A 0xFD000000u
@@ -68,7 +65,6 @@
 #define NV097_SET_COLOR_CLEAR_VALUE 0x1D90u
 #define KELVIN_CLASS 0x97u
 
-// RAMIN: a 4 KB hash table, then the objects. Handles below 512 hash to themselves on channel 0.
 #define RAMHT_OFFSET 0x10000u
 #define DMA_PUSH_BUFFER 0x20000u
 #define DMA_SEMAPHORE 0x20010u
@@ -84,7 +80,6 @@ static inline ULONG nv_method(ULONG subchannel, ULONG method, ULONG count)
     return count << 18 | subchannel << 13 | method;
 }
 
-// pfifo.c's hash: the handle folded in 11-bit pieces (a 4 KB table), channel 0.
 static inline ULONG nv_ramht_hash(ULONG handle)
 {
     ULONG hash = 0;
@@ -106,10 +101,11 @@ static inline void nv_ramht_entry(ULONG handle, ULONG instance)
     nv_wr(at + 4, instance >> 4 | RAMHT_ENGINE_GRAPHICS | RAMHT_STATUS_VALID);
 }
 
-// Channel 0 in DMA mode over a push buffer at `push_buffer` (physical, page aligned) of `limit` + 1 bytes, with a
-// Kelvin object and a semaphore DMA object at `semaphore` (physical). PGRAPH's channel is left invalid when
-// `context_valid` is 0, so the first SET_OBJECT raises the context-switch interrupt, as a cold D3D start does.
-static inline void nv_channel_setup(ULONG push_buffer, ULONG limit, ULONG semaphore, int context_valid)
+static inline ULONG nv_jump(ULONG offset) { return offset | 1u; }
+
+typedef enum { NV_CONTEXT_SWITCH_PENDING, NV_CONTEXT_BOUND } NvContext;
+
+static inline void nv_channel_setup(ULONG push_buffer, ULONG limit, ULONG semaphore, NvContext context)
 {
     nv_dma_object(DMA_PUSH_BUFFER, push_buffer, limit);
     nv_dma_object(DMA_SEMAPHORE, semaphore, 0xFFF);
@@ -123,15 +119,14 @@ static inline void nv_channel_setup(ULONG push_buffer, ULONG limit, ULONG semaph
     nv_wr(NV_PFIFO + PFIFO_CACHE1_DMA_PUSH, 1);
     nv_wr(NV_PFIFO + PFIFO_CACHE1_PUSH0, 1);
     nv_wr(NV_PFIFO + PFIFO_CACHE1_PULL0, 1);
-    if (context_valid) {
+    if (context == NV_CONTEXT_BOUND) {
         nv_wr(NV_PGRAPH + PGRAPH_CTX_USER, 0);
         nv_wr(NV_PGRAPH + PGRAPH_CTX_CONTROL, PGRAPH_CTX_CONTROL_CHID_VALID);
     }
     nv_wr(NV_PGRAPH + PGRAPH_FIFO, 1);
 }
 
-// Milliseconds in 32-bit arithmetic: the labs link no CRT, so a 64-bit division (__aulldiv) has no body. Spans stay
-// under a few seconds, which fits 32 bits of the performance counter.
+// Milliseconds in 32-bit arithmetic: the labs link no CRT, so a 64-bit division (__aulldiv) has no body.
 static ULONG lab_freq_khz;
 
 static inline void lab_clock_init(void) { lab_freq_khz = (ULONG)KeQueryPerformanceFrequency() / 1000u; }
