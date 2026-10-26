@@ -52,6 +52,8 @@ std::mutex g_failure_lock;
 std::optional<Failure> g_first_failure;
 // Set by the boot thread when the guest itself ended the session (result=ok); the pad loop then leaves for the hub.
 std::atomic<bool> g_guest_left{false};
+// The Devices stage has passed: the title's pad exists and the pad line can be shown.
+std::atomic<bool> g_devices_attached{false};
 
 std::string utf8(std::u16string_view s)
 {
@@ -128,6 +130,8 @@ struct Services final : xbrt::ShellServices {
     void stage(xbrt::BootStage s, std::string_view line) override
     {
         report(xbrt::boot_stage_name(s), std::string(line), LineColour::Green);
+        if (s == xbrt::BootStage::Devices) g_devices_attached = true;
+        if (s == xbrt::BootStage::Start) g_screen.add("hold View and Menu to return to the hub", LineColour::White);
     }
     void fail(xbrt::BootStage s, std::string_view line) override
     {
@@ -142,7 +146,13 @@ struct Services final : xbrt::ShellServices {
     {
         return xbrt::list_disc_files(folder, error);
     }
-    void log(std::string_view line) override { xbrt::run_log::run(line); }
+    // The lab programs' own lines are shown as well: they are how a lab reports what the guest saw.
+    void log(std::string_view line) override
+    {
+        xbrt::run_log::run(line);
+        constexpr std::string_view kLab = "guest: lab ";
+        if (line.starts_with(kLab)) g_screen.add(std::string(line.substr(7)), LineColour::White);
+    }
     void counters(std::string_view line) override { g_screen.replace("counters ", line, LineColour::Grey); }
     std::u16string data_root() override { return utf16(g_local_state); }
 };
@@ -275,10 +285,11 @@ void boot(Link link)
     g_boot_running = false;
 }
 
-bool b_down()
+// Any pad holds all of `buttons`.
+bool held(GamepadButtons buttons)
 {
     for (Gamepad const &pad : Gamepad::Gamepads())
-        if ((pad.GetCurrentReading().Buttons & GamepadButtons::B) != GamepadButtons::None) return true;
+        if ((pad.GetCurrentReading().Buttons & buttons) == buttons) return true;
     return false;
 }
 
@@ -364,7 +375,6 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
             std::lock_guard<std::mutex> g(g_failure_lock);
             failure = g_first_failure;
         }
-        if (!failure && g_boot_running) failure = Failure{"Interrupted", "boot interrupted by " + std::string(why)};
         xbrt::run_log::shell("return: " + std::string(why));
         if (!link_ || !link_->request || link_->request->return_uri.empty()) return exit_now();
         std::u16string uri = xbrt::return_link(link_->request->return_uri, failure ? "error" : "ok",
@@ -402,7 +412,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
 
         std::vector<uint8_t> frame;
         uint64_t shown = ~uint64_t(0);
-        ULONGLONG polled = 0;
+        ULONGLONG polled = 0, chord_since = 0;
         bool b_was_down = false;
         CoreDispatcher dispatcher = window_.Dispatcher();
         while (!closed_ && !left_) {
@@ -410,9 +420,17 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView> {
             ULONGLONG now = GetTickCount64();
             if (now - polled >= 100) {
                 polled = now;
-                bool down = b_down();
-                if (down && !b_was_down) return_to_hub("B");
-                b_was_down = down;
+                // While the title runs its buttons are the title's; holding View and Menu for a second leaves.
+                if (g_boot_running) {
+                    bool chord = held(GamepadButtons::View | GamepadButtons::Menu);
+                    chord_since = chord ? (chord_since ? chord_since : now) : 0;
+                    if (chord_since && now - chord_since >= 1000) return_to_hub("View and Menu");
+                } else {
+                    bool down = held(GamepadButtons::B);
+                    if (down && !b_was_down) return_to_hub("B");
+                    b_was_down = down;
+                }
+                if (g_devices_attached) g_screen.replace("pad 1:", xbrt::pad_line(), LineColour::Grey);
                 if (g_guest_left) return_to_hub("guest exit");
             }
             uint64_t version = g_screen.version();

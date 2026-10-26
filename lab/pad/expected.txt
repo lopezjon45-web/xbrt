@@ -1,0 +1,5 @@
+lab pad start
+lab pad connected
+lab pad pressed A with the left stick right
+lab pad released both
+lab pad ok

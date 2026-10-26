@@ -29,6 +29,8 @@ jobs:
           git -C nxdk fetch -q --depth 1 https://github.com/XboxDev/nxdk.git "$NXDK_COMMIT"
           git -C nxdk checkout -q FETCH_HEAD
           git -C nxdk submodule update -q --init --depth 1 lib/pdclib
+          # lab/pad is an nxdk program: nxdk's Makefile links every default library, and its USB stack is libusbohci.
+          git -C nxdk submodule update -q --init --depth 1 lib/usb/libusbohci lib/net/lwip lib/zlib/zlib lib/libpng/libpng lib/libjpeg/libjpeg-turbo
       - name: Install LLVM 18
         run: sudo apt-get install -y -q --no-install-recommends clang-18 lld-18 llvm-18
       - name: Build the lab XBEs

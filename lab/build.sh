@@ -2,7 +2,8 @@
 # lab/build.sh <out dir>: builds every lab program into <out dir>/<name>/default.xbe beside the files of its disc/
 # folder, so each <name> folder is a disc directory for `xbrt_desktop --run`. Needs NXDK_DIR (an nxdk checkout with
 # its lib/pdclib submodule) and clang, clang++, lld-link, llvm-lib and llvm-dlltool from LLVM_BIN (default: PATH).
-# Each lab enters at lab_entry, not nxdk's crt0: crt0 starts main() on a second thread, and U2 parks spawned threads.
+# Each lab enters at lab_entry, not nxdk's crt0, except one with a Makefile: that is an nxdk program built by nxdk's
+# Makefile (its USB stack needs nxdk's runtime), and needs NXDK_DIR's lib/usb/libusbohci submodule.
 set -euo pipefail
 lab=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$1"
@@ -25,6 +26,18 @@ flags=(-target i386-pc-win32 -march=pentium3 -O2 -ffreestanding -nostdlib -fno-b
 for dir in "$lab"/*/; do
     name=$(basename "$dir")
     [ -f "$dir/main.c" ] || continue
+    if [ -f "$dir/Makefile" ]; then
+        # An nxdk program (crt0 and main, nxdk's libraries): nxdk's Makefile builds it in a copy, since it writes its
+        # objects beside the sources.
+        rm -rf "$obj/nxdk/$name" "${out:?}/$name"
+        mkdir -p "$obj/nxdk"
+        cp -R "$dir" "$obj/nxdk/$name"
+        cp "$lab/lab.h" "$obj/nxdk/lab.h"
+        PATH="${LLVM_BIN:+$LLVM_BIN:}$NXDK_DIR/bin:$PATH" make -s -C "$obj/nxdk/$name" NXDK_DIR="$NXDK_DIR" \
+            OUTPUT_DIR="$out/$name" >/dev/null
+        echo "built $out/$name/default.xbe"
+        continue
+    fi
     "${bin}clang" "${flags[@]}" -c "$dir/main.c" -o "$obj/$name.obj"
     "${bin}lld-link" -subsystem:windows -fixed -base:0x00010000 -stack:65536 -entry:lab_entry -nodefaultlib -safeseh:no \
         -out:"$obj/$name.exe" "$obj/$name.obj" "$obj/libseh.lib" "$obj/libxboxkrnl.lib"

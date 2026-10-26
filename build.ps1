@@ -61,7 +61,7 @@ Run cl.exe ($cflags + @("/DUNICODE", "/D_UNICODE", "/DWINAPI_FAMILY=WINAPI_FAMIL
     "/I$fork\src\kernel", "/I$fork\src", "/I$fork\include", "/c", "/Fdgen\fork\", "/Fogen\fork\") + $forkSources)
 Run lib.exe (@("/nologo", "/OUT:gen\fork\xboxrecomp_kernel.lib") + (Get-ChildItem gen\fork\*.obj | ForEach-Object { $_.FullName }))
 $common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include",
-    "/I$fork\include")
+    "/I$fork\include", "/I$fork\src")
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\host" @() (Get-ChildItem host\*.cpp, host\cpu\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })

@@ -41,6 +41,7 @@ void StatusScreen::replace(std::string_view prefix, std::string_view text, LineC
     std::lock_guard<std::mutex> g(lock_);
     for (auto it = lines_.rbegin(); it != lines_.rend(); ++it) {
         if (it->text.starts_with(prefix)) {
+            if (it->text == text && it->colour == colour) return;
             *it = {std::string(text), colour};
             version_++;
             return;

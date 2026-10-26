@@ -72,7 +72,12 @@ GuestVa kernel_data_export(Ordinal o);
 // For the device answers in host/devices.cpp: reports through the installed sink.
 void report_missing(Missing m) noexcept;
 
-// The Devices stage: maps every device model's registers on `cpu` and starts its threads. Returns the stage line.
+// The Devices stage: maps every device model's registers on `cpu` and starts its threads (and the pads' reader).
+// Returns the stage line.
 std::string attach_devices(Cpu &cpu);
+
+// "pad 1: 812 reports to the title, holding A, left stick 32767 0": what the title's own USB code last read from the
+// pad on game port 1. Any thread, after attach_devices.
+std::string pad_line();
 
 }  // namespace xbrt

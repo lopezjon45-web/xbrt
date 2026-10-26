@@ -103,8 +103,8 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 100 bridge_KeDisconnectInterrupt
     BridgeStatus::NoOp,   // 101 bridge_KeEnterCriticalRegion
     BridgeStatus::Full,   // 102 bridge_MmGlobalData
-    BridgeStatus::Stub,   // 103 bridge_KeGetCurrentIrql
-    BridgeStatus::Stub,   // 104 bridge_KeGetCurrentThread
+    BridgeStatus::Full,   // 103 bridge_KeGetCurrentIrql
+    BridgeStatus::Full,   // 104 bridge_KeGetCurrentThread
     BridgeStatus::Full,   // 105 bridge_KeInitializeApc
     BridgeStatus::Full,   // 106 bridge_KeInitializeDeviceQueue
     BridgeStatus::Full,   // 107 bridge_KeInitializeDpc

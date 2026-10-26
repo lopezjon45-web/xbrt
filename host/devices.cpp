@@ -1,19 +1,22 @@
-// The device models, each an MmioDevice on Cpu::map_mmio. The two USB host controllers are the fork's OHCI model;
-// the NV2A and the APU arrive with U4 and U5, and until then the kernel bridges' questions about them get the answer
-// for a console without them, and a register access is a named Missing.
+// The device models, each an MmioDevice on Cpu::map_mmio. The two USB host controllers are the fork's OHCI model, its
+// pad fed by the fork's input reader from the shell's xbox_shell_pad_read; the NV2A and the APU arrive with U4 and U5,
+// and until then the kernel bridges' questions about them get the answer for a console without them, and a register
+// access is a named Missing.
 #include "host/kernel.h"
 
 #include "core/devices.h"
 
 #include <windows.h>
-#include <xinput.h>
 
 #include <cstdio>
 
 extern "C" {
+#include "input/input_host.h"
+
 void xbox_OhciAttach(void);
 uint32_t xbox_OhciRead(uint32_t xbox_va, unsigned size);
 void xbox_OhciWrite(uint32_t xbox_va, unsigned size, uint32_t value);
+uint32_t usb_gamepad_served(int pad, uint8_t last[20]);
 }
 
 namespace {
@@ -35,20 +38,46 @@ void register_access(const char *verb, uint32_t va, bool stop)
 std::string xbrt::attach_devices(Cpu &cpu)
 {
     static Ohci ohci;
+    InputHostConfig input;
+    xbox_HostInputDefaults(&input);
+    input.keyboard = INPUT_HOST_KEYBOARD_OFF;   // no keyboard player: it would read as a pad in its slot
+    input.players = 1;
+    int pads = xbox_HostInputStart(&input);
     xbox_OhciAttach();
     for (std::string_view name : {"USB0 OHCI", "USB1 OHCI"})
         for (const DeviceAperture &d : kDeviceApertures)
             if (d.name == name) cpu.map_mmio({{d.base}, d.size}, ohci);
-    return "devices USB0 and USB1 OHCI, a pad on game port 1 with no input source yet (U6); no NV2A or APU (U4, U5)";
+    return "devices USB0 and USB1 OHCI, the pad on game port 1 read from " + std::to_string(pads) +
+           " host pad" + (pads == 1 ? "" : "s") + "; no NV2A or APU (U4, U5)";
+}
+
+std::string xbrt::pad_line()
+{
+    uint8_t r[20];
+    uint32_t served = usb_gamepad_served(0, r);
+    if (!served) return "pad 1: the title has not read it yet";
+    static constexpr struct {
+        int byte;
+        uint8_t mask;
+        const char *name;
+    } kDigital[] = {{2, 0x01, "up"}, {2, 0x02, "down"}, {2, 0x04, "left"}, {2, 0x08, "right"},
+                    {2, 0x10, "start"}, {2, 0x20, "back"}, {2, 0x40, "ls"}, {2, 0x80, "rs"}};
+    static constexpr const char *kAnalog[] = {"A", "B", "X", "Y", "black", "white", "lt", "rt"};
+    std::string held;
+    for (const auto &d : kDigital)
+        if (r[d.byte] & d.mask) held += std::string(" ") + d.name;
+    for (int i = 0; i < 8; i++)
+        if (r[4 + i] >= 0x40) held += std::string(" ") + kAnalog[i];
+    int16_t lx = int16_t(r[12] | r[13] << 8), ly = int16_t(r[14] | r[15] << 8);
+    char sticks[48];
+    snprintf(sticks, sizeof sticks, ", left stick %d %d", lx, ly);
+    return "pad 1: " + std::to_string(served) + " reports to the title, holding" + (held.empty() ? " nothing" : held) +
+           sticks;
 }
 
 extern "C" {
 
 int xbox_frontend_nv2a_attached(void) { return 0; }
-
-// The pads' source is the shell's Windows.Gaming.Input with U6; until then every slot reads as empty.
-int xbox_shell_pad_read(unsigned, XINPUT_GAMEPAD *) { return 0; }
-void xbox_shell_pad_rumble(unsigned, unsigned short, unsigned short) {}
 
 // No keyboard: the console has none.
 int xbox_FramebufferKeyDown(int) { return 0; }
