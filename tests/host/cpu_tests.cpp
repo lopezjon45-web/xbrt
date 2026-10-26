@@ -483,13 +483,18 @@ struct Tests {
         e.push_imm8(5).mov_ecx_imm(stub103).call_ecx().mov_eax_imm(0xBAD).ret();
         uint32_t payload_e = code.put(e.b);
         static uint32_t exit_depth, spawned_index;
+        static bool tls;
         g_handlers[103] = [payload_f](GuestThread &t, GateFrame &f) {
             t.call({payload_f}, std::vector<uint32_t>{}, CallConv::Stdcall);
             f.eax = 0xBAD;
             stdcall_return(f, 1);
         };
-        g_handlers[104] = [](GuestThread &t, GateFrame &) {
-            exit_depth = detail::block_of(t)->host.depth;
+        g_handlers[104] = [&memory = memory](GuestThread &t, GateFrame &) {
+            const ThreadBlock *tb = detail::block_of(t);
+            uint32_t data = tb->ethread.Tcb.TlsData;
+            tls = data != 0 && *memory.host<uint32_t>({data}) == data + 4 && tb->kpcr.NtTib.StackBase == data &&
+                  data + 0x40 + 4 <= tb->host.stack_base;
+            exit_depth = tb->host.depth;
             spawned_index = t.index();
             t.exit(0x77);
         };
@@ -502,8 +507,6 @@ struct Tests {
         GetExitCodeThread(h, &code);
         uint32_t threads_now = cpu.counters().live_guest_threads;
         const ThreadBlock *tb = detail::block_of(t);
-        bool tls = tb->ethread.Tcb.TlsData != 0 && *memory.host<uint32_t>({tb->ethread.Tcb.TlsData}) == tb->ethread.Tcb.TlsData + 4 &&
-                   tb->kpcr.NtTib.StackBase == tb->ethread.Tcb.TlsData && tb->ethread.Tcb.TlsData + 0x40 + 4 <= tb->host.stack_base;
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X", wait, code, exit_depth,
                                     spawned_index, threads_now, int(tls), tb->kpcr.PrcbData.DmEnetFunc);
         return {wait == WAIT_OBJECT_0 && code == 0x77 && exit_depth == 2 && spawned_index == t.index() && spawned_index > 0 && threads_now == 0 && tls &&
