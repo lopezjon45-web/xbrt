@@ -37,13 +37,13 @@ if [ "${1:-}" = "--history" ]; then
     range=${2:?usage: check-no-disc-data.sh --history <git range>}
     patch=$(mktemp)
     git -C "$repo" log -p --no-color "$range" -- . ':!external' ':!scripts/check-no-disc-data.sh' > "$patch"
-    if ! hits=$(scan "$patch" | grep -v '^[0-9]*:[-+]\{3\}'); then
-        rm -f "$patch"
+    hits=$(scan "$patch"); rc=$?
+    rm -f "$patch"
+    if [ $rc -ne 0 ]; then
         echo "FAIL disc or console data in the commits $range:"
-        echo "$hits" | head -20 | cut -c1-160
+        echo "$hits" | grep -v '^[0-9]*:[-+]\{3\}' | head -20 | cut -c1-160
         exit 1
     fi
-    rm -f "$patch"
     echo "no disc data in the history $range"
     exit 0
 fi
