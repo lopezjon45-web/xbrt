@@ -1,0 +1,18 @@
+lab fs-forms start
+lab fs-forms FsLoad-A1 0x11112222 0x11112222
+lab fs-forms FsLoad-8B 0x33334444 0x33334444
+lab fs-forms FsStore 0x55556666 0x55556666
+lab fs-forms FsStore-esp 0x00000000 0x00000000
+lab fs-forms FsStoreImm 0x77778888 0x77778888
+lab fs-forms FsPush 0x9999AAAA 0x9999AAAA
+lab fs-forms FsPush-esp 0xFFFFFFFC 0xFFFFFFFC
+lab fs-forms FsPop 0xBBBBCCCC 0xBBBBCCCC
+lab fs-forms FsPop-esp 0x00000004 0x00000004
+lab fs-forms FsMovzxByte 0x000000A5 0x000000A5
+lab fs-forms FsMovzxByte-irql 0x00000000 0x00000000
+lab fs-forms FsCmp-equal 0x00000001 0x00000001
+lab fs-forms FsCmp-below 0x00000100 0x00000100
+lab fs-forms FsCmpRev-equal 0x00000001 0x00000001
+lab fs-forms FsCmpRev-above 0x00000000 0x00000000
+lab fs-forms unpromotable-add 0x6FFE6FFE 0x6FFE6FFE
+lab fs-forms ok
