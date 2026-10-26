@@ -88,9 +88,9 @@ TEST(return_link_appends_the_outcome_to_a_bare_scheme)
 
 TEST(return_link_joins_a_return_uri_that_already_carries_a_query)
 {
-    CHECK_STR(narrow(xbrt::return_link(kBack, "ok", "", "")), "decomp:?from=xboxrt&result=ok");
-    CHECK_STR(narrow(xbrt::return_link(kBack, "error", "Feature", "XLaunchNewImage(\\setup.xbe)")),
-              "decomp:?from=xboxrt&result=error&kind=Feature&missing=XLaunchNewImage%28%5Csetup.xbe%29");
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:?vault=1", "ok", "", "")), "decomp:?vault=1&from=xbrt&result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:?vault=1", "error", "Feature", "XLaunchNewImage(\\setup.xbe)")),
+              "decomp:?vault=1&from=xbrt&result=error&kind=Feature&missing=XLaunchNewImage%28%5Csetup.xbe%29");
 }
 
 TEST(return_link_escapes_every_byte_outside_the_rfc3986_unreserved_set)
@@ -117,8 +117,23 @@ TEST(parse_launch_takes_home_and_an_extracted_disc_directory)
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"dir", u"disc"}, {u"disc", kGame}}), "exactly one");
 }
 
-TEST(return_link_keeps_a_from_the_hub_already_chose)
+TEST(return_link_replaces_a_from_the_link_already_carries)
 {
-    CHECK_STR(narrow(xbrt::return_link(u"decomp:?from=xboxrt", "ok", "", "")), "decomp:?from=xboxrt&result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"decomp:?from=xboxrt", "ok", "", "")), "decomp:?from=xbrt&result=ok");
+    CHECK_STR(narrow(xbrt::return_link(u"hub:?game=7&from=hub&x=1", "ok", "", "")),
+              "hub:?game=7&from=xbrt&x=1&result=ok");
     CHECK_STR(narrow(xbrt::return_link(u"gamevault:", "ok", "", "")), "gamevault:?from=xbrt&result=ok");
+}
+
+TEST(a_boot_stage_failure_returns_kind_launch_with_the_stage_leading_missing)
+{
+    xbrt::ReturnFailure disc = xbrt::return_failure("disc", "disc FAIL E:\\Xbox\\x.iso: CreateFile2FromAppW error 3");
+    CHECK_STR(disc.kind, "Launch");
+    CHECK_STR(disc.missing, "disc: E:\\Xbox\\x.iso: CreateFile2FromAppW error 3");
+    xbrt::ReturnFailure reserve = xbrt::return_failure("reserve", "the reservation failed");
+    CHECK_STR(reserve.kind, "Launch");
+    CHECK_STR(reserve.missing, "reserve: the reservation failed");
+    xbrt::ReturnFailure gap = xbrt::return_failure("KernelExport", "Missing kernel export 0x172 (370)");
+    CHECK_STR(gap.kind, "KernelExport");
+    CHECK_STR(gap.missing, "Missing kernel export 0x172 (370)");
 }

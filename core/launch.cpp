@@ -107,6 +107,19 @@ Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs)
     return r;
 }
 
+// INTEGRATION.md section 1's kinds besides Launch: the refusals a running title meets.
+constexpr std::string_view kRefusalKinds[] = {"KernelExport", "Instruction", "DeviceRegister", "GpuMethod", "Feature",
+                                              "Hang"};
+
+ReturnFailure return_failure(std::string_view kind, std::string_view text)
+{
+    for (std::string_view k : kRefusalKinds)
+        if (k == kind) return {std::string(kind), std::string(text)};
+    std::string fail = std::string(kind) + " FAIL ";
+    if (text.starts_with(fail)) text.remove_prefix(fail.size());
+    return {"Launch", std::string(kind) + ": " + std::string(text)};
+}
+
 std::u16string return_link(std::u16string_view return_uri, std::string_view result, std::string_view kind,
                            std::string_view missing)
 {
@@ -114,10 +127,17 @@ std::u16string return_link(std::u16string_view return_uri, std::string_view resu
     auto separate = [&out] {
         if (!out.ends_with(u'?') && !out.ends_with(u'&')) out += out.find(u'?') == std::u16string::npos ? u'?' : u'&';
     };
+    // A from= the link already carries is replaced: the hub reads from=xbrt to know who returned.
     size_t query = out.find(u'?');
-    bool has_from = query != std::u16string::npos &&
-                    (out.find(u"?from=", query) != std::u16string::npos || out.find(u"&from=", query) != std::u16string::npos);
-    if (!has_from) {
+    size_t from = std::u16string::npos;
+    if (query != std::u16string::npos) {
+        for (size_t at = query; at != std::u16string::npos && from == std::u16string::npos; at = out.find(u'&', at + 1))
+            if (std::u16string_view(out).substr(at + 1).starts_with(u"from=")) from = at + 1;
+    }
+    if (from != std::u16string::npos) {
+        size_t end = out.find(u'&', from);
+        out.replace(from, (end == std::u16string::npos ? out.size() : end) - from, u"from=xbrt");
+    } else {
         separate();
         out += u"from=xbrt";
     }
