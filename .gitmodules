@@ -7,4 +7,4 @@
 [submodule "external/xboxrecomp"]
 	path = external/xboxrecomp
 	url = https://github.com/lopezjon45-web/xboxrecomp
-	branch = one-s
+	branch = xbrt

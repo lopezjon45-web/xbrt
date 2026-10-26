@@ -46,22 +46,38 @@ Run cl.exe ($cflags + $zydisFlags + @("/c", "/Fdgen\zycore\", "/Fogen\zycore\") 
     (Get-ChildItem external\zydis\dependencies\zycore\src\*.c | ForEach-Object { $_.FullName }))
 Run cl.exe ($cflags + @("/Iexternal\XbSymbolDatabase\include", "/Iexternal\XbSymbolDatabase\src", "/Iexternal\XbSymbolDatabase\src\OOVPADatabase", "/Iexternal\XbSymbolDatabase\src\lib", "/c", "/Fdgen\xbsdb\", "/Fogen\xbsdb\") +
     (Get-ChildItem external\XbSymbolDatabase\src\lib\*.c, external\XbSymbolDatabase\src\OOVPADatabase\*.c | ForEach-Object { $_.FullName }))
-$common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include")
+# The fork's kernel with the direct front end: host\kernel.cpp defines xbox\xbox_frontend.h and the symbols of the files
+# in lifted-only.txt, which are left out. App partition with app_partition.h force-included, as the fork's own UWP
+# build does; getenv stays declared (_CRT_USE_WINAPI_FAMILY_DESKTOP_APP), as route 2 builds it for the console. A
+# library, so the link takes only the objects the adapter reaches (src\kernel's push-buffer executor waits for U5).
+New-Item -ItemType Directory -Force gen\fork | Out-Null
+$fork = "external\xboxrecomp"
+$liftedOnly = Get-Content "$fork\src\kernel\lifted-only.txt"
+$forkSources = @(Get-ChildItem "$fork\src\kernel\*.c" | Where-Object { $liftedOnly -notcontains $_.Name } | ForEach-Object { $_.FullName }) +
+    @((Get-Item "$fork\src\platform\app_partition.c").FullName)
+Run cl.exe ($cflags + @("/DUNICODE", "/D_UNICODE", "/DWINAPI_FAMILY=WINAPI_FAMILY_PC_APP", "/D_CRT_USE_WINAPI_FAMILY_DESKTOP_APP",
+    "/DXBOXRECOMP_UWP=1", "/DXBOXRECOMP_FRONTEND_DIRECT=1", "/FI$root\$fork\src\platform\app_partition.h",
+    "/I$fork\src\kernel", "/I$fork\src", "/I$fork\include", "/c", "/Fdgen\fork\", "/Fogen\fork\") + $forkSources)
+Run lib.exe (@("/nologo", "/OUT:gen\fork\xboxrecomp_kernel.lib") + (Get-ChildItem gen\fork\*.obj | ForEach-Object { $_.FullName }))
+$common += @("/DZYDIS_STATIC_BUILD", "/DZYCORE_STATIC_BUILD", "/Iexternal\zydis\include", "/Iexternal\zydis\dependencies\zycore\include", "/Iexternal\XbSymbolDatabase\include",
+    "/I$fork\include")
 Compile "gen\core" @() (Get-ChildItem core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\host" @() (Get-ChildItem host\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\uwp" $app (Get-ChildItem shell\uwp\*.cpp | ForEach-Object { $_.FullName })
-Compile "gen\desktop" @() @("shell\desktop\main.cpp")
+Compile "gen\desktop" @() (Get-ChildItem shell\desktop\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\tests" @() (Get-ChildItem tests\core\*.cpp | ForEach-Object { $_.FullName })
 Compile "gen\inspect" @() @("tools\xbrt-inspect\main.cpp")
 
 $coreObjs = Get-ChildItem gen\core\*.obj, gen\zydis\*.obj, gen\zycore\*.obj, gen\xbsdb\*.obj | ForEach-Object { $_.FullName }
-$hostObjs = Get-ChildItem gen\host\*.obj | ForEach-Object { $_.FullName }
+$hostObjs = @(Get-ChildItem gen\host\*.obj | ForEach-Object { $_.FullName }) + @("gen\fork\xboxrecomp_kernel.lib")
 $uwpObjs = Get-ChildItem gen\uwp\*.obj | ForEach-Object { $_.FullName }
 
 Run link.exe (@("/nologo", "/OUT:gen\xbrt.exe", "/SUBSYSTEM:WINDOWS", "/APPCONTAINER", "/DEBUG", "/OPT:REF", "/OPT:ICF", "/PDB:gen\xbrt.pdb") +
     $coreObjs + $hostObjs + $uwpObjs + @("WindowsApp.lib", "onecore.lib", "d3d12.lib", "d3d11.lib", "dxgi.lib"))
 Note "xbrt.exe size: $((Get-Item gen\xbrt.exe).Length)"
-Run link.exe (@("/nologo", "/OUT:gen\xbrt_desktop.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_desktop.pdb", "gen\desktop\main.obj") +
+Note "xbrt.exe imports: $((& dumpbin /imports gen\xbrt.exe | Where-Object { $_ -match '^\s+\S+\.dll$' } | ForEach-Object { $_.Trim() } | Sort-Object -Unique) -join ' ')"
+Run link.exe (@("/nologo", "/OUT:gen\xbrt_desktop.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_desktop.pdb") +
+    (Get-ChildItem gen\desktop\*.obj | ForEach-Object { $_.FullName }) +
     $coreObjs + $hostObjs + @("onecore.lib", "d3d12.lib", "d3d11.lib", "dxgi.lib"))
 Run link.exe (@("/nologo", "/OUT:gen\xbrt_tests.exe", "/SUBSYSTEM:CONSOLE", "/DEBUG", "/PDB:gen\xbrt_tests.pdb") +
     (Get-ChildItem gen\tests\*.obj | ForEach-Object { $_.FullName }) + $coreObjs)

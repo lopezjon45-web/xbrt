@@ -1,6 +1,7 @@
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
+#include "shell/desktop/kernel_tests.h"
 
 #include <windows.h>
 
@@ -122,11 +123,13 @@ struct DesktopServices final : xbrt::ShellServices {
 
 }  // namespace
 
-// xbrt_desktop.exe [--survey <folder>]: the stages and probes; with --survey, the survey over a folder of images
-// instead, writing survey.tsv beside run.txt.
+// xbrt_desktop.exe [--survey <folder> | --kernel-tests]: the stages and probes; with --survey, the survey over a
+// folder of images instead, writing survey.tsv beside run.txt; with --kernel-tests, the kernel adapter's tests,
+// written to kernel-tests.txt.
 int main(int argc, char **argv)
 {
-    g_run = std::fopen("run.txt", "w");
+    const bool kernel_tests = argc == 2 && std::string(argv[1]) == "--kernel-tests";
+    g_run = std::fopen(kernel_tests ? "kernel-tests.txt" : "run.txt", "w");
     if (!g_run) std::fprintf(stderr, "cannot open run.txt\n");
     if (argc == 3 && std::string(argv[1]) == "--survey") {
         DesktopServices services;
@@ -152,6 +155,12 @@ int main(int argc, char **argv)
         return 1;
     }
     for (const std::string &s : (*memory)->log()) line(s);
+    if (kernel_tests) {
+        bool passed = xbrt::run_kernel_tests(**memory, line);
+        line("END");
+        if (g_run) std::fclose(g_run);
+        return passed ? 0 : 1;
+    }
 
     std::string identity = (*memory)->identity_check();
     line(identity);
