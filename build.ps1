@@ -87,8 +87,10 @@ $allow = @(
 # is reported, not gated.
 $gate = New-Object System.Collections.Generic.List[string]
 foreach ($exe in "gen\xbrt.exe", "gen\xbrt_desktop.exe") {
-    $mode = if ($exe -eq "gen\xbrt.exe") { @() } else { @("--report-only") }
-    $lines = python scripts\isa-gate.py --tool dumpbin --verbose @allow @mode $exe 2>&1 | ForEach-Object { "$_" }
+    [string[]]$gateArgs = @("scripts\isa-gate.py", "--tool", "dumpbin", "--verbose") + $allow
+    if ($exe -ne "gen\xbrt.exe") { $gateArgs += "--report-only" }
+    $gateArgs += $exe
+    $lines = & python $gateArgs 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $lines | Where-Object { $_ -notmatch '^\s+(BMI2|FMA3|FMA4|AVX2|AVX512) ' } | Write-Output
     $gate.AddRange([string[]]$lines)
