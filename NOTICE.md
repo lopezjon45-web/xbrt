@@ -13,6 +13,9 @@ Third-party code in this repository or linked into its binaries:
 | XbSymbolDatabase (Cxbx-Reloaded) | `external/XbSymbolDatabase` | MIT | XDK function and variable names for overrides and the survey |
 | glslang (Khronos) | `external/glslang` | BSD-3-Clause, with MIT and Apache-2.0 parts (its LICENSE.txt) | GLSL to SPIR-V in the shader chain (`host/m0`), built without HLSL input or the optimizer |
 | SPIRV-Cross (Khronos) | `external/SPIRV-Cross` | Apache-2.0 | SPIR-V to HLSL in the shader chain (`host/m0`) |
+| xemu (xemu-project, from QEMU) | `external/xemu` | GPL-2.0-or-later, LGPL-2.1-or-later and MIT per file header | The MCPX APU, the NV2A and QEMU's VGA core, byte-identical at the pin in `external/xemu-vendor/MANIFEST` |
+| nv2a_vsh_cpu (xemu-project) | `external/nv2a_vsh_cpu` | Public domain (Unlicense) | The NV2A vertex shader interpreter xemu's PGRAPH uses |
+| libsamplerate 0.2.2 (libsndfile) | `external/libsamplerate` | BSD-2-Clause | The APU voice processor's resampler |
 
 Apache-2.0 is compatible with GPL version 3, not version 2, so a binary that links glslang and SPIRV-Cross (xbrt.exe
 and xbrt_desktop.exe from M0 on) is distributed under GPL-3.0-or-later, which xbrt's "or any later version" allows.

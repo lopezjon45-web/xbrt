@@ -24,3 +24,6 @@ console/results/
 launch.txt
 run.txt
 shell.txt
+
+# tools/xemu-vendor.py clones of the pinned upstreams
+.xemu-vendor-cache/

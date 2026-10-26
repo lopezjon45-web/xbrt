@@ -74,6 +74,8 @@ jobs:
           submodules: recursive
       - name: Check the bridge status table against the fork
         run: python scripts/gen-bridge-status.py external/xboxrecomp/src/kernel/kernel_bridge.c --check core/gen/bridge_status.inc
+      - name: Vendored upstream is byte-identical to its pins
+        run: python -I tools/xemu-vendor.py check
       - name: No disc or console data, no per-title code
         shell: bash
         run: scripts/check-no-disc-data.sh && scripts/check-no-title-code.sh
