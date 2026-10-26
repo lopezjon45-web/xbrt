@@ -7,7 +7,8 @@
 <lab dir> holds <name>/expected.txt per lab (the source tree's lab/, or lab/build.sh's output). <run dir> holds
 <name>.txt per lab: everything `xbrt_desktop --run` wrote to stdout and stderr. A lab passes when the lines of its
 output that carry "lab <name> " (DbgPrint output may arrive behind a prefix) are exactly its expected lines, in
-order. On a failure the judge prints the difference, the boot stage that failed if one did, and the output's tail.
+order. On a failure the judge prints the difference, the boot stage that failed if one did, and the output (its last
+200 lines; the desktop run traces every kernel call).
 A --known-failure lab is judged and reported the same way but does not fail the run; one that passes does, so the
 flag is removed the moment the defect it names is fixed.
 """
@@ -32,7 +33,7 @@ def judge(name, expected, output):
     report = [f"lab {name}: FAIL"]
     report += ["  " + d for d in difflib.unified_diff(expected, got, "expected", "run", lineterm="", n=1)]
     report += ["  boot: " + l for l in output.splitlines() if " FAIL " in l and not l.lstrip().startswith("lab ")]
-    report += ["  tail: " + l for l in output.splitlines()[-8:]]
+    report += ["  output: " + l for l in output.splitlines()[-200:]]
     return False, report
 
 
