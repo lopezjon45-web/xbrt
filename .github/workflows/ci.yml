@@ -167,6 +167,16 @@ jobs:
         run: |
           python scripts/m0-report.py out/m0-warp.tsv --label "WARP on windows-2022, run ${{ github.run_id }}" | tee out/m0-warp-report.txt || true
           grep -q "^end" out/m0-warp.tsv
+      - name: Run the xemu shim tests
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force xemu-tests | Out-Null
+          $out = "$PWD\out\xemu-tests.txt"
+          $p = Start-Process -FilePath "$PWD\gen\xemu_tests.exe" -WorkingDirectory "$PWD\xemu-tests" -NoNewWindow -PassThru -RedirectStandardOutput $out
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); Add-Content $out "xemu tests: FAIL timed out after 180 s" }
+          Write-Output "exit $($p.ExitCode)"
+      - name: Judge the xemu shim tests
+        run: python scripts/check-xemu-tests.py out/xemu-tests.txt
       - name: Fetch the lab XBEs
         id: labxbe
         continue-on-error: true
