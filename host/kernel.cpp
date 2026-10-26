@@ -449,6 +449,14 @@ void xbox_MmSetAddressProtect(void *va, uint32_t size, uint32_t protect)
     g_setup.memory->protect_virtual(&base, &size, protect, &old);
 }
 
+uint32_t xbox_NtProtectVirtualMemory(uint32_t *base, uint32_t *size, uint32_t protect, uint32_t *old_protect)
+{
+    xbrt::GuestVa va{*base};
+    uint32_t status = g_setup.memory->protect_virtual(&va, size, protect, old_protect);
+    *base = va.v;
+    return status;
+}
+
 // Pages here never leave memory, so there is nothing to pin for DMA.
 void xbox_MmLockUnlockBufferPages(void *, uint32_t, unsigned char) {}
 void xbox_MmLockUnlockPhysicalPage(uintptr_t, unsigned char) {}
