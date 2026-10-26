@@ -5,7 +5,6 @@
 
 #include <windows.h>
 
-#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -46,7 +45,6 @@ constexpr uint32_t kKernelDataSize = 0x1000;
 
 KernelSetup g_setup;
 uint32_t g_kernel_data;
-std::atomic<bool> g_stub_warned[512];
 
 // The innermost host call of this thread; a nested guest call starts below its esp.
 thread_local GateFrame *t_frame;
@@ -104,8 +102,11 @@ void call_kernel(Ordinal o, GateFrame &f) noexcept
 {
     uint32_t return_address = mem32(f.esp);
     BridgeStatus status = bridge_status(o);
-    if (status == BridgeStatus::Stub && o.v < std::size(g_stub_warned) && !g_stub_warned[o.v].exchange(true))
-        stop_or_warn(MissingKind::KernelStub, false, "stub: " + export_label(o), return_address);
+    if (status == BridgeStatus::Stub) {
+        stop_or_warn(MissingKind::KernelExport, true, "Kernel export " + export_label(o) + " is a stub in the kernel bridges",
+                     return_address);
+        return;
+    }
 
     g_eax = f.eax;
     g_ecx = f.ecx;
@@ -199,7 +200,6 @@ std::string_view missing_kind_name(MissingKind k)
 {
     switch (k) {
     case MissingKind::KernelExport: return "KernelExport";
-    case MissingKind::KernelStub: return "KernelStub";
     case MissingKind::Instruction: return "Instruction";
     case MissingKind::DeviceRegister: return "DeviceRegister";
     case MissingKind::GpuMethod: return "GpuMethod";

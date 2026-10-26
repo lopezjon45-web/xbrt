@@ -9,7 +9,7 @@ using namespace synth;
 
 namespace {
 
-constexpr xbrt::Ordinal kFull{1}, kNone{367}, kStub{7};
+constexpr xbrt::Ordinal kFull{1}, kNone{367}, kStub{10}, kNoOp{7};
 
 Xiso two_xbe_disc(std::u16string_view title = u"SYNTH")
 {
@@ -37,6 +37,7 @@ TEST(survey_disc_lists_every_xbe_and_splits_imports_by_bridge_status)
     CHECK(xbrt::bridge_status(kFull) == xbrt::BridgeStatus::Full);
     CHECK(xbrt::bridge_status(kNone) == xbrt::BridgeStatus::None);
     CHECK(xbrt::bridge_status(kStub) == xbrt::BridgeStatus::Stub);
+    CHECK(xbrt::bridge_status(kNoOp) == xbrt::BridgeStatus::NoOp);
 
     Xiso img = two_xbe_disc();
     xbrt::SurveyRow row = xbrt::survey_disc(img, "synth.xiso");
@@ -51,7 +52,7 @@ TEST(survey_disc_lists_every_xbe_and_splits_imports_by_bridge_status)
     CHECK_EQ(row.libraries.size(), 2u);
     CHECK(row.verdict == xbrt::SurveyVerdict::NamedGaps);
     CHECK_CONTAINS(row.reason, "imports with no bridge 1 (367 )");
-    CHECK_CONTAINS(row.reason, "stub imports 1 (7 DbgLoadImageSymbols)");
+    CHECK_CONTAINS(row.reason, "stub imports, refused when called, 1 (10 DbgPrompt)");
 }
 
 TEST(survey_disc_on_a_disc_the_lister_rejects_is_unparsed_with_the_listers_reason)
@@ -96,7 +97,7 @@ TEST(to_tsv_writes_one_cell_per_header_column_and_turns_a_tab_in_a_title_into_a_
     CHECK_EQ(columns(lines[2]), 19u);
     CHECK(lines[1].starts_with("synth.xiso\tTAB TITLE\tFFFF0001\t0x11000\tnamed-gaps\t"));
     CHECK_CONTAINS(lines[1], "\tbonus\\Extra.XBE;default.xbe\tXAPILIB:5849:");
-    CHECK_CONTAINS(lines[1], "\t3\t367=\t7=DbgLoadImageSymbols\t");
+    CHECK_CONTAINS(lines[1], "\t3\t367=\t10=DbgPrompt\t");
     CHECK(lines[2].starts_with("bad.iso\t\t\t\tunparsed\t"));
     CHECK(lines[2].ends_with(std::string(13, '\t')));
 }

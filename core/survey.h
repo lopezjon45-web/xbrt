@@ -10,9 +10,10 @@
 
 namespace xbrt {
 
-// What the fork does for an ordinal: a bridge (Full, Partial or Stub), a data export served from its kernel data
-// page (Data), or nothing (None).
-enum class BridgeStatus : uint8_t { Full, Partial, Stub, Data, None };
+// What the fork does for an ordinal: a bridge (Full or Partial), a stub the runtime refuses when called (Stub), a stub
+// reviewed as the console's own answer (NoOp, scripts/kernel-noop-exports.tsv), a data export served from its kernel
+// data page (Data), or nothing (None).
+enum class BridgeStatus : uint8_t { Full, Partial, Stub, NoOp, Data, None };
 
 BridgeStatus bridge_status(Ordinal o);
 
@@ -23,8 +24,8 @@ struct LibraryCoverage {
 };
 
 enum class SurveyVerdict : uint8_t {
-    Ready,       // parsed, planned, no import without a bridge, no unpromotable fs form (a stub warns, never stops)
-    NamedGaps,   // boots; the listed gaps stop it when reached (imports with no bridge, unpromotable fs forms)
+    Ready,       // parsed, planned, no import without a bridge or with a refused stub, no unpromotable fs form
+    NamedGaps,   // boots; the listed gaps stop it when reached (imports with no bridge or a stub, unpromotable fs forms)
     Unparsed,    // the disc or the XBE could not be read; reason given
 };
 

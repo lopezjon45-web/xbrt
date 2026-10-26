@@ -1,0 +1,16 @@
+ordinal	name	why doing nothing is the console's answer in xbrt
+7	DbgLoadImageSymbols	tells an attached kernel debugger about a loaded image; xbrt has no kernel debugger
+11	DbgUnLoadImageSymbols	tells an attached kernel debugger an image went away; xbrt has no kernel debugger
+36	FscInvalidateIdleBlocks	drops idle FATX cache blocks; the file layer is host files with no guest-side cache
+43	HalEnableSystemInterrupt	unmasks an interrupt line; no device model delivers interrupts yet (revisit when U4 attaches one)
+47	HalRegisterShutdownNotification	registers a callback run at shutdown or reboot; returning to the hub ends the process and no shutdown runs callbacks
+90	IoDismountVolume	volumes are host folders with no mount state; the next open sees what a remount would
+91	IoDismountVolumeByName	volumes are host folders with no mount state; the next open sees what a remount would
+94	KeBoostPriorityThread	a transient boost that decays on the console too; nothing reads it back
+101	KeEnterCriticalRegion	defers normal kernel APCs; xbrt delivers no kernel APCs (revisit with KeInsertQueueApc)
+122	KeLeaveCriticalRegion	ends the deferral KeEnterCriticalRegion began; xbrt delivers no kernel APCs
+178	MmPersistContiguousMemory	keeps memory across a reboot into the next XBE; xbrt runs one XBE per process
+242	ObMakeTemporaryObject	clears an object's permanent flag; xbrt objects are host handles and none is permanent
+365	HalEnableSecureTrayEject	lets the SMC eject the tray without a reboot; there is no tray
+366	HalWriteSMCScratchRegister	the scratch value is read by the next boot; there is no SMC and the hub ends the process
+377	MmDbgReleaseAddress	restores page protection after a debugger write; there is no debugger

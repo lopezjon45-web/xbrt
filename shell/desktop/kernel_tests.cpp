@@ -174,17 +174,26 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
         result("NtReadFile", failure);
     }
     {
-        // A stub bridge runs and warns once per ordinal; the guest continues.
+        // A stub bridge is refused like a missing export: a stop that names it, the guest's registers untouched.
         Call c(memory, stack);
         sink.seen.clear();
-        c.run({10}, {0, 0});
-        std::string failure = c.returned(8, 0);
-        c.run({10}, {0, 0});
-        if (failure.empty()) failure = c.returned(8, 0);
-        if (failure.empty() && (sink.seen.size() != 1 || sink.seen[0].kind != MissingKind::KernelStub ||
-                                sink.seen[0].stop || sink.seen[0].what != "stub: 0x00A DbgPrompt (10)"))
+        c.run({10}, {0, 0, 0});
+        std::string failure;
+        if (c.frame.eip != kReturnAddress || c.frame.esp != c.esp || c.frame.eax != kUntouched)
+            failure = "frame changed: eip=" + hex(c.frame.eip) + " esp=" + hex(c.frame.esp) + " eax=" + hex(c.frame.eax);
+        else if (sink.seen.size() != 1 || sink.seen[0].kind != MissingKind::KernelExport || !sink.seen[0].stop ||
+                 sink.seen[0].what != "Kernel export 0x00A DbgPrompt (10) is a stub in the kernel bridges")
             failure = std::to_string(sink.seen.size()) + " reports, first '" + (sink.seen.empty() ? "" : sink.seen[0].what) + "'";
         result("stub", failure);
+    }
+    {
+        // A reviewed no-op runs its bridge silently and returns.
+        Call c(memory, stack);
+        sink.seen.clear();
+        c.run({47}, {0, 0});
+        std::string failure = c.returned(8, 0);
+        if (failure.empty() && !sink.seen.empty()) failure = std::to_string(sink.seen.size()) + " reports, first '" + sink.seen[0].what + "'";
+        result("noop", failure);
     }
     {
         // No bridge: a stop that names the export and the call site, and nothing written to the guest's registers.

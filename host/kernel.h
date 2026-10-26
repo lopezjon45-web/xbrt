@@ -17,7 +17,7 @@
 namespace xbrt {
 
 // design.md "Visible failure": the kinds a gap can be.
-enum class MissingKind : uint8_t { KernelExport, KernelStub, Instruction, DeviceRegister, GpuMethod, Feature, Hang };
+enum class MissingKind : uint8_t { KernelExport, Instruction, DeviceRegister, GpuMethod, Feature, Hang };
 
 std::string_view missing_kind_name(MissingKind k);
 

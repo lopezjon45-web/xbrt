@@ -51,7 +51,7 @@ std::string gap_summary(const SurveyRow &row)
         add("imports with no bridge " + std::to_string(row.imports_no_bridge.size()) + " (" +
             first_names(row.imports_no_bridge) + ")");
     if (!row.imports_stub.empty())
-        add("stub imports " + std::to_string(row.imports_stub.size()) + " (" + first_names(row.imports_stub) + ")");
+        add("stub imports, refused when called, " + std::to_string(row.imports_stub.size()) + " (" + first_names(row.imports_stub) + ")");
     if (row.code_map.fs_unpromotable) add("unpromotable fs forms " + std::to_string(row.code_map.fs_unpromotable));
     return out;
 }
@@ -79,6 +79,7 @@ void survey_into(SurveyRow &row, std::span<const uint8_t> file)
         case BridgeStatus::Stub: row.imports_stub.push_back(o); break;
         case BridgeStatus::Full:
         case BridgeStatus::Partial:
+        case BridgeStatus::NoOp:
         case BridgeStatus::Data: break;
         }
     }
@@ -86,8 +87,9 @@ void survey_into(SurveyRow &row, std::span<const uint8_t> file)
     for (const OverrideSite &o : plan.overrides) row.overrides_placed.push_back(o.id);
     const HleRow &launch = kHleTable[size_t(HleId::XLaunchNewImageA)];
     row.calls_launch_new_image = symbols.find(launch.library, launch.symbol).has_value();
-    row.verdict = row.imports_no_bridge.empty() && row.code_map.fs_unpromotable == 0 ? SurveyVerdict::Ready
-                                                                                      : SurveyVerdict::NamedGaps;
+    row.verdict = row.imports_no_bridge.empty() && row.imports_stub.empty() && row.code_map.fs_unpromotable == 0
+                      ? SurveyVerdict::Ready
+                      : SurveyVerdict::NamedGaps;
     row.reason = gap_summary(row);
     for (HleId id : plan.overrides_missing)
         row.reason += (row.reason.empty() ? "" : "; ") + std::string("override not placed: ") + std::string(kHleTable[size_t(id)].symbol);

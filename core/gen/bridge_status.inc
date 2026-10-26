@@ -7,11 +7,11 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 4 bridge_AvSetSavedDataAddress
     BridgeStatus::Full,   // 5 bridge_DbgBreakPoint
     BridgeStatus::Full,   // 6 bridge_DbgBreakPointWithStatus
-    BridgeStatus::Stub,   // 7 bridge_DbgLoadImageSymbols
+    BridgeStatus::NoOp,   // 7 bridge_DbgLoadImageSymbols
     BridgeStatus::Full,   // 8 bridge_DbgPrint
     BridgeStatus::Full,   // 9 bridge_HalReadSMCTrayState
     BridgeStatus::Stub,   // 10 bridge_DbgPrompt
-    BridgeStatus::Stub,   // 11 bridge_DbgUnLoadImageSymbols
+    BridgeStatus::NoOp,   // 11 bridge_DbgUnLoadImageSymbols
     BridgeStatus::Stub,   // 12 bridge_ExAcquireReadWriteLockExclusive
     BridgeStatus::Stub,   // 13 bridge_ExAcquireReadWriteLockShared
     BridgeStatus::Full,   // 14 bridge_ExAllocatePool
@@ -36,18 +36,18 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 33 bridge_ExfInterlockedInsertTailList
     BridgeStatus::Full,   // 34 bridge_ExfInterlockedRemoveHeadList
     BridgeStatus::Full,   // 35 bridge_FscGetCacheSize
-    BridgeStatus::Stub,   // 36 bridge_FscInvalidateIdleBlocks
-    BridgeStatus::Stub,   // 37 bridge_FscSetCacheSize
+    BridgeStatus::NoOp,   // 36 bridge_FscInvalidateIdleBlocks
+    BridgeStatus::Full,   // 37 bridge_FscSetCacheSize
     BridgeStatus::Full,   // 38 bridge_HalClearSoftwareInterrupt
     BridgeStatus::Full,   // 39 bridge_HalDisableSystemInterrupt
     BridgeStatus::Data,   // 40 kernel data page
     BridgeStatus::Data,   // 41 kernel data page
     BridgeStatus::Data,   // 42 kernel data page
-    BridgeStatus::Stub,   // 43 bridge_HalEnableSystemInterrupt
+    BridgeStatus::NoOp,   // 43 bridge_HalEnableSystemInterrupt
     BridgeStatus::Full,   // 44 bridge_HalGetInterruptVector
     BridgeStatus::Full,   // 45 bridge_HalReadSMBusValue
     BridgeStatus::Full,   // 46 bridge_HalReadWritePCISpace
-    BridgeStatus::Stub,   // 47 bridge_HalRegisterShutdownNotification
+    BridgeStatus::NoOp,   // 47 bridge_HalRegisterShutdownNotification
     BridgeStatus::Full,   // 48 bridge_HalRequestSoftwareInterrupt
     BridgeStatus::Full,   // 49 bridge_HalReturnToFirmware
     BridgeStatus::Full,   // 50 bridge_HalWriteSMBusValue
@@ -88,20 +88,20 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 85 bridge_IoSynchronousFsdRequest
     BridgeStatus::Full,   // 86 bridge_IofCallDriver
     BridgeStatus::Full,   // 87 bridge_IofCompleteRequest
-    BridgeStatus::Stub,   // 88 bridge_KdDebuggerEnabled
-    BridgeStatus::Stub,   // 89 bridge_KdDebuggerNotPresent
-    BridgeStatus::Stub,   // 90 bridge_IoDismountVolume
-    BridgeStatus::Stub,   // 91 bridge_IoDismountVolumeByName
+    BridgeStatus::Data,   // 88 kernel data page
+    BridgeStatus::Data,   // 89 kernel data page
+    BridgeStatus::NoOp,   // 90 bridge_IoDismountVolume
+    BridgeStatus::NoOp,   // 91 bridge_IoDismountVolumeByName
     BridgeStatus::Stub,   // 92 bridge_KeAlertResumeThread
     BridgeStatus::Full,   // 93 bridge_KeAlertThread
-    BridgeStatus::Stub,   // 94 bridge_KeBoostPriorityThread
+    BridgeStatus::NoOp,   // 94 bridge_KeBoostPriorityThread
     BridgeStatus::Stub,   // 95 bridge_KeBugCheck
     BridgeStatus::Stub,   // 96 bridge_KeBugCheckEx
     BridgeStatus::Full,   // 97 bridge_KeCancelTimer
-    BridgeStatus::Stub,   // 98 bridge_KeConnectInterrupt
+    BridgeStatus::Full,   // 98 bridge_KeConnectInterrupt
     BridgeStatus::Full,   // 99 bridge_KeDelayExecutionThread
     BridgeStatus::Full,   // 100 bridge_KeDisconnectInterrupt
-    BridgeStatus::Stub,   // 101 bridge_KeEnterCriticalRegion
+    BridgeStatus::NoOp,   // 101 bridge_KeEnterCriticalRegion
     BridgeStatus::Full,   // 102 bridge_MmGlobalData
     BridgeStatus::Stub,   // 103 bridge_KeGetCurrentIrql
     BridgeStatus::Stub,   // 104 bridge_KeGetCurrentThread
@@ -122,7 +122,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 119 bridge_KeInsertQueueDpc
     BridgeStatus::Full,   // 120 bridge_KeInterruptTime
     BridgeStatus::Stub,   // 121 bridge_KeIsExecutingDpc
-    BridgeStatus::Stub,   // 122 bridge_KeLeaveCriticalRegion
+    BridgeStatus::NoOp,   // 122 bridge_KeLeaveCriticalRegion
     BridgeStatus::Full,   // 123 bridge_KePulseEvent
     BridgeStatus::Full,   // 124 bridge_KeQueryBasePriorityThread
     BridgeStatus::Full,   // 125 bridge_KeQueryInterruptTime
@@ -178,7 +178,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 175 bridge_MmLockUnlockBufferPages
     BridgeStatus::Full,   // 176 bridge_MmLockUnlockPhysicalPage
     BridgeStatus::Full,   // 177 bridge_MmMapIoSpace
-    BridgeStatus::Stub,   // 178 bridge_MmPersistContiguousMemory
+    BridgeStatus::NoOp,   // 178 bridge_MmPersistContiguousMemory
     BridgeStatus::Full,   // 179 bridge_MmQueryAddressProtect
     BridgeStatus::Full,   // 180 bridge_MmQueryAllocationSize
     BridgeStatus::Full,   // 181 bridge_MmQueryStatistics
@@ -242,7 +242,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Stub,   // 239 bridge_ObCreateObject
     BridgeStatus::Full,   // 240 bridge_ObDirectoryObjectType
     BridgeStatus::Stub,   // 241 bridge_ObInsertObject
-    BridgeStatus::Stub,   // 242 bridge_ObMakeTemporaryObject
+    BridgeStatus::NoOp,   // 242 bridge_ObMakeTemporaryObject
     BridgeStatus::Stub,   // 243 bridge_ObOpenObjectByName
     BridgeStatus::Stub,   // 244 bridge_ObOpenObjectByPointer
     BridgeStatus::Full,   // 245 bridge_ObpObjectHandleTable
@@ -285,7 +285,7 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 282 bridge_RtlExtendedLargeIntegerDivide
     BridgeStatus::Full,   // 283 bridge_RtlExtendedMagicDivide
     BridgeStatus::Full,   // 284 bridge_RtlFillMemory
-    BridgeStatus::Stub,   // 285 bridge_RtlFillMemoryUlong
+    BridgeStatus::Full,   // 285 bridge_RtlFillMemoryUlong
     BridgeStatus::Full,   // 286 bridge_RtlFreeAnsiString
     BridgeStatus::Full,   // 287 bridge_RtlFreeUnicodeString
     BridgeStatus::Full,   // 288 bridge_RtlGetCallersAddress
@@ -365,8 +365,8 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 362 bridge_RtlSprintf
     BridgeStatus::Full,   // 363 bridge_RtlVsnprintf
     BridgeStatus::Full,   // 364 bridge_RtlVsprintf
-    BridgeStatus::Stub,   // 365 bridge_HalEnableSecureTrayEject
-    BridgeStatus::Stub,   // 366 bridge_HalWriteSMCScratchRegister
+    BridgeStatus::NoOp,   // 365 bridge_HalEnableSecureTrayEject
+    BridgeStatus::NoOp,   // 366 bridge_HalWriteSMCScratchRegister
     BridgeStatus::None,   // 367
     BridgeStatus::None,   // 368
     BridgeStatus::None,   // 369
@@ -377,6 +377,6 @@ inline constexpr BridgeStatus kBridgeStatus[379] = {
     BridgeStatus::Full,   // 374 bridge_MmDbgAllocateMemory
     BridgeStatus::Full,   // 375 bridge_MmDbgFreeMemory
     BridgeStatus::Stub,   // 376 bridge_MmDbgQueryAvailablePages
-    BridgeStatus::Stub,   // 377 bridge_MmDbgReleaseAddress
+    BridgeStatus::NoOp,   // 377 bridge_MmDbgReleaseAddress
     BridgeStatus::Full,   // 378 bridge_MmDbgWriteCheck
 };
