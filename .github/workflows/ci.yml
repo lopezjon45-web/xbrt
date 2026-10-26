@@ -33,13 +33,15 @@ jobs:
           git -C nxdk submodule update -q --init --depth 1 lib/pdclib
           # lab/pad is an nxdk program: nxdk's Makefile links every default library, and its USB stack is libusbohci.
           git -C nxdk submodule update -q --init --depth 1 lib/usb/libusbohci lib/net/lwip lib/zlib/zlib lib/libpng/libpng lib/libjpeg/libjpeg-turbo
-      # The bridges pop what kernel_abi.inc says; it must be what nxdk's xboxkrnl prototypes say, and every bridge must
-      # read its arguments where the table puts them.
+      # The bridges pop what kernel_abi.inc says; it must be what nxdk's xboxkrnl prototypes say. The fork's kernel
+      # audit then checks every bridge reads its arguments where the table puts them, and every DATA export is served
+      # from the kernel data page.
       - name: Check the kernel argument table against nxdk and the bridges against the table
         run: |
           git submodule update -q --init external/xboxrecomp
           python3 external/xboxrecomp/tools/kernel_audit/gen_kernel_abi.py nxdk/lib/xboxkrnl --check
           python3 external/xboxrecomp/tools/kernel_audit/test_bridge_ordinals.py
+          python3 external/xboxrecomp/tools/kernel_audit/test_gen_ordinal_remap.py
       - name: Install LLVM 18
         run: sudo apt-get install -y -q --no-install-recommends clang-18 lld-18 llvm-18
       - name: Build the lab XBEs
