@@ -35,6 +35,8 @@ jobs:
           git -C nxdk submodule update -q --init --depth 1 lib/usb/libusbohci lib/net/lwip lib/zlib/zlib lib/libpng/libpng lib/libjpeg/libjpeg-turbo
       - name: Install LLVM 18
         run: sudo apt-get install -y -q --no-install-recommends clang-18 lld-18 llvm-18
+      - name: Test the ISA gate
+        run: python3 scripts/test-isa-gate.py --objdump /usr/lib/llvm-18/bin/llvm-objdump
       - name: Build the lab XBEs
         run: NXDK_DIR="$PWD/nxdk" LLVM_BIN=/usr/lib/llvm-18/bin bash lab/build.sh lab-xbe
       # Every lab also runs from an XISO of its folder, so D:\ read in place answers as the folder does.
