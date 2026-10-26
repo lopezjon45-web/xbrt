@@ -129,6 +129,9 @@ public:
 
     CpuCounters counters() const;
     uint64_t guest_tsc() const;
+    // The cores device threads run on: the process's cores without the one guest threads are pinned to, or all of
+    // them when that leaves none or guest threads are not pinned.
+    uint64_t device_core_mask() const;
 
 private:
     Cpu() = default;

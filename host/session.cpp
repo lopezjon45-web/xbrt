@@ -564,7 +564,7 @@ std::expected<Session, BootError> Session::boot(const LaunchRequest &request, Gu
                                           skipped.size()));
 
     shell.attach_devices(*s.cpu);
-    shell.stage(BootStage::Devices, attach_devices(*s.cpu));
+    shell.stage(BootStage::Devices, attach_devices(*s.cpu, *s.memory));
 
     uint32_t tls_size = s.xbe.tls_block_size();
     uint32_t stack = std::max(s.xbe.stack_commit, kMainStackSize);
