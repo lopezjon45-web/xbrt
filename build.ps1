@@ -94,7 +94,9 @@ $xemuFlags = @("/nologo", "/c", "/O2", "/MT", "/Z7", "/utf-8", "/std:c11", "/DWI
     "/Iexternal\xemu\hw\xbox\mcpx\apu\dsp", "/Iexternal\nv2a_vsh_cpu\src", "/Iexternal\libsamplerate\include")
 $vendoredWarnings = @("/W0", "-Wno-everything", "-Werror=implicit-function-declaration", "-Werror=implicit-int",
     "-Werror=return-type")
-$xemuSources = @(python.exe -I tools\xemu-vendor.py list-c) + @(Get-ChildItem host\xemu\shim\src\*.c | ForEach-Object { "host\xemu\shim\src\$($_.Name)" })
+$xemuSources = @(python.exe -I tools\xemu-vendor.py list-c) +
+    @(Get-ChildItem host\xemu\shim\src\*.c | ForEach-Object { "host\xemu\shim\src\$($_.Name)" }) +
+    @(Get-ChildItem host\xemu\renderers\*.c | ForEach-Object { "host\xemu\renderers\$($_.Name)" })
 foreach ($src in $xemuSources) {
     $warnings = if ($src -like "external\*") { $vendoredWarnings } else { @("/W3") }
     # One object per source, named after its path: two debug.c files would otherwise share one object name.

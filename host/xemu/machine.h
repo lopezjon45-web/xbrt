@@ -2,6 +2,7 @@
 
 #include "host/cpu.h"
 #include "host/memory.h"
+#include "host/xemu/xbrt_xemu.h"
 
 #include <string>
 
@@ -12,6 +13,9 @@ namespace xbrt {
 // the machine. Once per process, after kernel_install and before thread 0 starts. Any failure is a stop refusal.
 // Returns the stage line's part for these devices.
 std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory);
+
+// The NV2A's renderer for the next attach_xemu_devices; upstream's null renderer unless a shell asks for another.
+void select_xemu_renderer(XbrtRenderer renderer);
 
 // "nv2a methods=.. draws=.. flips=.. vblanks=..; apu frames/s=.. util=..", or empty before the devices are attached.
 std::string xemu_counters_line();

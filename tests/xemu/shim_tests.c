@@ -6,6 +6,7 @@
 #include "hw/xbox/nv2a/nv2a_regs.h"
 #include "qemu/main-loop.h"
 #include "qemu/timer.h"
+#include "renderers/probe.h"
 
 void mcpx_apu_init(PCIBus *bus, int devfn, MemoryRegion *ram);
 void nv2a_init(PCIBus *bus, int devfn, MemoryRegion *ram);
@@ -521,6 +522,32 @@ static Result nv2a_push_buffer_context_switch_semaphore(void)
            (unsigned long long)(after.nv2a_methods - before.nv2a_methods));
 }
 
+/* Defect: a renderer that is not upstream's never reached through the PGRAPHRenderer seam, or a draw that is not one
+ * begin and one end. Runs on the channel the push-buffer test left bound. */
+static Result probe_counts_one_draw(void)
+{
+    XbrtProbeCounts p0 = xbrt_probe_counts;
+    XbrtCounters c0;
+    xbrt_xemu_counters(&c0);
+    uint32_t *pb = (uint32_t *)(g_host.ram + PUSH_BUFFER);
+    uint32_t start = nv2a_r(NV2A_USER + NV_USER_DMA_GET), n = start / 4;
+    pb[n++] = method(0, NV097_SET_BEGIN_END, 1), pb[n++] = NV097_SET_BEGIN_END_OP_TRIANGLES;
+    pb[n++] = 0x40000000u | method(0, NV097_INLINE_ARRAY, 9);
+    for (unsigned i = 0; i < 9; i++) pb[n++] = 0x3F800000u;
+    pb[n++] = method(0, NV097_SET_BEGIN_END, 1), pb[n++] = NV097_SET_BEGIN_END_OP_END;
+    nv2a_w(NV2A_USER + NV_USER_DMA_PUT, n * 4);
+    uint32_t get = 0;
+    for (ULONGLONG t = GetTickCount64(); GetTickCount64() - t < 1000; Sleep(1))
+        if ((get = nv2a_r(NV2A_USER + NV_USER_DMA_GET)) == n * 4) break;
+    XbrtProbeCounts p1 = xbrt_probe_counts;
+    XbrtCounters c1;
+    xbrt_xemu_counters(&c1);
+    uint64_t begins = p1.draw_begin - p0.draw_begin, ends = p1.draw_end - p0.draw_end;
+    bool ok = p1.init == 1 && begins == 1 && ends == 1 && get == n * 4 && c1.nv2a_draws - c0.nv2a_draws == 1;
+    RESULT(ok, "draw_begin %llu, draw_end %llu, get == put %d, draws counted %llu", (unsigned long long)begins,
+           (unsigned long long)ends, get == n * 4, (unsigned long long)(c1.nv2a_draws - c0.nv2a_draws));
+}
+
 /* Defect: no vblank (the clock thread never calls the display hook), or one at a rate a title's frame pacing would
  * notice. */
 static Result nv2a_vblank_rate(void)
@@ -587,6 +614,7 @@ static const Test kTests[] = {
     {"apu_xgscnt_off_then_48k", apu_xgscnt_off_then_48k},
     {"nv2a_boot0_and_ram_bar", nv2a_boot0_and_ram_bar},
     {"nv2a_push_buffer_context_switch_semaphore", nv2a_push_buffer_context_switch_semaphore},
+    {"probe_counts_one_draw", probe_counts_one_draw},
     {"nv2a_vblank_rate", nv2a_vblank_rate},
     {"nv2a_ptimer_alarm", nv2a_ptimer_alarm},
 };
@@ -599,6 +627,7 @@ int main(void)
     g_host.ram = VirtualAlloc(NULL, g_host.ram_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     g_host.voice_workers = 2;
     g_host.vblank_hz = 59.94;
+    g_host.renderer = XBRT_RENDERER_PROBE;
     g_host.irq_level = test_irq_level;
     g_host.refuse = test_refuse;
     g_host.log = test_log;

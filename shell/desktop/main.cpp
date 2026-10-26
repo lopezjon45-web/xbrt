@@ -3,6 +3,7 @@
 #include "host/memory.h"
 #include "host/probes.h"
 #include "host/session.h"
+#include "host/xemu/machine.h"
 #include "tests/host/cpu_tests.h"
 #include "shell/desktop/kernel_tests.h"
 
@@ -148,6 +149,7 @@ struct RunArgs {
     std::filesystem::path home;   // the link's home= (saves); empty for LocalState, the working directory here
     std::u16string xbe = u"\\default.xbe";
     unsigned seconds = 30;
+    XbrtRenderer renderer = XBRT_RENDERER_NULL;
 };
 
 bool is_disc_image(const std::filesystem::path &p)
@@ -178,6 +180,13 @@ xbrt::Parsed<RunArgs> parse_run(int argc, char **argv)
         if (flag == "--home") {
             args.home = std::filesystem::absolute(argv[i + 1], ec);
             if (ec) return std::unexpected(std::string("--run: --home ") + argv[i + 1] + " is not a path");
+            continue;
+        }
+        if (flag == "--renderer") {
+            std::string name = argv[i + 1];
+            if (name == "null") args.renderer = XBRT_RENDERER_NULL;
+            else if (name == "probe") args.renderer = XBRT_RENDERER_PROBE;
+            else return std::unexpected("--run: --renderer " + name + " is not null or probe");
             continue;
         }
         char *end = nullptr;
@@ -212,6 +221,7 @@ int run_xbe(const RunArgs &args)
     for (const std::string &s : (*memory)->log()) line(s);
 
     end_run_after(args.seconds);
+    xbrt::select_xemu_renderer(args.renderer);
 
     xbrt::LaunchRequest request;
     request.dir_path = narrow16(args.dir.wstring());
@@ -255,7 +265,7 @@ int run_m0(const char *bundle)
 }  // namespace
 
 // xbrt_desktop.exe [--survey <folder> | --cpu-tests | --kernel-tests | --run <xbe, dir or .iso> [--seconds N]
-// [--home <dir>] |
+// [--home <dir>] [--renderer null|probe] |
 // --m0 <corpus bundle>]: the stages and probes; --survey writes survey.tsv beside run.txt; --cpu-tests and --kernel-tests
 // write that suite's file; --run boots that XBE with its folder as D:\, or an image's default.xbe with the image as D:\,
 // and keeps saves under <home>\saves\xbrt (default: the working directory, as LocalState). --m0 runs the M0 probe on WARP.

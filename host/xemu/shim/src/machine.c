@@ -1,7 +1,9 @@
 #include <windows.h>
 
 #include "shim.h"
+#include "hw/xbox/nv2a/pgraph/pgraph.h"
 #include "qemu/main-loop.h"
+#include "renderers/probe.h"
 #include "xemu-config.h"
 
 void mcpx_apu_init(PCIBus *bus, int devfn, MemoryRegion *ram);
@@ -52,7 +54,9 @@ unsigned xbrt_machine_create(const XbrtHost *host, const XbrtDeviceSpec *devices
     if (created) xbrt_refuse(XBRT_REFUSE_FEATURE, "xbrt_xemu_create called twice");
     created = true;
 
-    g_config.display.renderer = CONFIG_DISPLAY_RENDERER_NULL;
+    pgraph_renderer_register(&xbrt_probe_renderer);
+    g_config.display.renderer =
+        host->renderer == XBRT_RENDERER_PROBE ? CONFIG_DISPLAY_RENDERER_XBRT_PROBE : CONFIG_DISPLAY_RENDERER_NULL;
     g_config.audio.use_dsp = true;
     g_config.audio.use_dsp_jit = false;
     g_config.audio.hrtf = true;

@@ -35,6 +35,7 @@ struct Line {
 std::array<BarMmio, kMaxBars> g_bar_mmio;
 std::array<Line, kMaxBars> g_lines;
 XbrtHost g_host;
+XbrtRenderer g_renderer = XBRT_RENDERER_NULL;
 bool g_attached;
 
 bool line_up(std::string_view device)
@@ -70,7 +71,7 @@ void on_log(const char *line) { report_log(line); }
 std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
 {
     g_host = {memory.host<uint8_t>({0x80000000}), memory.ram_bytes(), cpu.device_core_mask(), kVoiceWorkers, kVblankHz,
-              on_irq_level, on_refuse, on_log};
+              g_renderer, on_irq_level, on_refuse, on_log};
     XbrtBar bars[kMaxBars];
     unsigned count = xbrt_xemu_create(&g_host, bars, kMaxBars);
     std::string line;
@@ -106,10 +107,13 @@ std::string attach_xemu_devices(Cpu &cpu, GuestMemory &memory)
     xbrt_xemu_run();
     g_attached = true;
     char tail[96];
-    snprintf(tail, sizeof tail, ", renderer Null, vblank %.2f Hz, device threads on cores 0x%llX", kVblankHz,
+    snprintf(tail, sizeof tail, ", renderer %s, vblank %.2f Hz, device threads on cores 0x%llX",
+             g_renderer == XBRT_RENDERER_PROBE ? "xbrt probe" : "Null", kVblankHz,
              static_cast<unsigned long long>(g_host.device_cores));
     return line + tail;
 }
+
+void select_xemu_renderer(XbrtRenderer renderer) { g_renderer = renderer; }
 
 std::string xemu_counters_line()
 {
