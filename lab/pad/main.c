@@ -1,7 +1,7 @@
 // A pad as a title's own USB code finds it: nxdk's OHCI host driver (interrupt-driven, through the kernel's
 // KeConnectInterrupt and DPCs) and its XID driver enumerate the controller on the first USB controller, and the lab
 // prints each change of its reports. The desktop host's scripted pad holds A with the left stick right for half of
-// every two seconds; on the console a person presses A and pushes the stick. Built by nxdk's own Makefile (crt0 and
+// every two seconds; on the console a person presses A and pushes the stick within a minute. Built by nxdk's own Makefile (crt0 and
 // main), not lab/build.sh: the USB stack needs nxdk's runtime.
 #include <usbh_lib.h>
 #include <xid_driver.h>
@@ -9,7 +9,7 @@
 
 #include "../lab.h"
 
-#define WAIT_SECONDS 20
+#define WAIT_SECONDS 60
 #define PRESSED 0x40
 #define STICK_PUSHED 16000
 
