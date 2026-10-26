@@ -15,6 +15,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <map>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -486,7 +487,7 @@ struct Tests {
         P e;
         e.push_imm8(5).mov_ecx_imm(stub103).call_ecx().mov_eax_imm(0xBAD).ret();
         uint32_t payload_e = code.put(e.b);
-        static uint32_t exit_depth, spawned_index;
+        static uint32_t exit_depth, spawned_index, monitor, notify;
         static bool tls;
         g_handlers[103] = [payload_f](GuestThread &t, GateFrame &f) {
             t.call({payload_f}, std::vector<uint32_t>{}, CallConv::Stdcall);
@@ -500,6 +501,9 @@ struct Tests {
                   tb->host.stack_top <= data;
             exit_depth = tb->host.depth;
             spawned_index = t.index();
+            // Read before exit: the ThreadBlock goes back to GuestMemory when the thread ends.
+            monitor = tb->kpcr.PrcbData.DebugMonitorData;
+            notify = monitor ? *memory.host<uint32_t>({monitor + detail::kDebugMonitorNotify}) : 0;
             t.exit(0x77);
         };
         snap();
@@ -512,9 +516,6 @@ struct Tests {
         DWORD code = 0;
         GetExitCodeThread(h, &code);
         uint32_t threads_now = cpu.counters().live_guest_threads;
-        const ThreadBlock *tb = detail::block_of(t);
-        uint32_t monitor = tb->kpcr.PrcbData.DebugMonitorData;
-        uint32_t notify = monitor ? *memory.host<uint32_t>({monitor + detail::kDebugMonitorNotify}) : 0;
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X notify=0x%08X fatal='%s' at 0x%08X",
                                     wait, code, exit_depth, spawned_index, threads_now, int(tls), monitor, notify,
                                     g_fatals ? g_fatal.what.c_str() : "", g_fatals ? g_fatal.where.v : 0);
@@ -524,6 +525,32 @@ struct Tests {
         return {wait == WAIT_OBJECT_0 && code == 0x77 && exit_depth == 2 && spawned_index == t.index() && spawned_index > 0 && threads_now == 0 && tls &&
                     notify == detail::g_cpu->gates.dm_notify,
                 detail};
+    }
+
+    // Defect: a ThreadBlock that outlives its thread. A title that starts and ends threads for ever then runs the
+    // runtime region out of blocks; one hundred threads in turn must share a handful.
+    Result thread_reuse()
+    {
+        uint32_t stub = cpu.gate_for(HostCallId::from_raw(110)).v;
+        P p;
+        p.mov_ecx_imm(stub).call_ecx().ret();
+        uint32_t payload = code.put(p.b);
+        static std::set<uint32_t> blocks;
+        blocks.clear();
+        g_handlers[110] = [](GuestThread &t, GateFrame &f) {
+            blocks.insert(t.kpcr().v);
+            stdcall_return(f, 0);
+        };
+        snap();
+        DWORD waits = 0;
+        for (int i = 0; i < 100; i++) {
+            GuestThread &t = GuestThread::spawn({payload}, std::span<const uint32_t>{}, SpawnOptions{0x10000, 8, false, 0});
+            if (WaitForSingleObject(detail::thread_handle(t), 10000) != WAIT_OBJECT_0) waits++;
+        }
+        uint32_t threads_now = cpu.counters().live_guest_threads;
+        std::string detail = format("%zu distinct ThreadBlocks for 100 threads run one after another, %lu joins timed out, threads=%u",
+                                    blocks.size(), waits, threads_now);
+        return {blocks.size() <= 2 && waits == 0 && threads_now == 0, detail};
     }
 
     // Defect: a thread left suspended inside an MMIO access, holding the device's lock, or one never suspended once
@@ -797,6 +824,7 @@ bool run_cpu_tests(GuestMemory &memory, const std::function<void(const std::stri
     report("nested", t.nested());
     report("trap-state", t.trap_state());
     report("spawn-exit", t.spawn_exit());
+    report("thread-reuse", t.thread_reuse());
     report("suspend-scope", t.suspend_scope());
     report("fault-gate", t.fault_gate());
     report("memory", t.memory_verbs());

@@ -14,10 +14,22 @@ thread_local ThreadBlock *t_block = nullptr;
 struct ThreadAccess {
     static GuestThread *make(ThreadBlock *b) { return new GuestThread(b); }
     static ThreadBlock *block(GuestThread &t) { return t.block_; }
+    static void *ended_host_thread(GuestThread &t) { return t.ended_host_thread_; }
+    static void end(GuestThread &t)
+    {
+        t.ended_index_ = t.block_->host.index;
+        t.ended_host_thread_id_ = t.block_->host.host_thread_id;
+        t.ended_host_thread_ = t.block_->host.host_thread;
+        t.block_ = nullptr;
+    }
 };
 
 ThreadBlock *block_of(GuestThread &t) { return ThreadAccess::block(t); }
-HANDLE thread_handle(GuestThread &t) { return static_cast<HANDLE>(block_of(t)->host.host_thread); }
+HANDLE thread_handle(GuestThread &t)
+{
+    ThreadBlock *b = block_of(t);
+    return static_cast<HANDLE>(b ? b->host.host_thread : ThreadAccess::ended_host_thread(t));
+}
 
 struct SpawnArgs {
     uint32_t entry;
@@ -122,6 +134,20 @@ void adopt(ThreadBlock *tb)
     if (g_cpu->options.pin_guest_threads_to_one_core) pin_to_guest_core();
 }
 
+// A spawned thread's last act: its stack and ThreadBlock go back to GuestMemory for the next thread. The GuestThread
+// keeps its slot in the registry, so indexes stay stable.
+void end_thread(ThreadBlock *tb)
+{
+    g_cpu->live_guest_threads--;
+    g_cpu->memory->free_stack({{tb->host.stack_base}, {tb->host.stack_limit}});
+    {
+        std::lock_guard<std::mutex> hold(g_cpu->threads_lock);
+        ThreadAccess::end(*tb->host.thread);
+    }
+    t_block = nullptr;
+    g_cpu->memory->free_thread_block({uint32_t(reinterpret_cast<uintptr_t>(tb))});
+}
+
 DWORD WINAPI guest_thread_main(void *p)
 {
     ThreadBlock *tb = static_cast<ThreadBlock *>(p);
@@ -130,8 +156,7 @@ DWORD WINAPI guest_thread_main(void *p)
     tb->host.spawn = nullptr;
     GuestThread &t = *tb->host.thread;
     uint64_t r = t.call({spawn->entry}, spawn->args, CallConv::Stdcall);
-    g_cpu->live_guest_threads--;
-    g_cpu->memory->free_stack({{tb->host.stack_base}, {tb->host.stack_limit}});
+    end_thread(tb);
     return uint32_t(r);
 }
 
@@ -286,7 +311,7 @@ SuspendResult suspend_outside_devices(void *thread, uint32_t *previous)
     {
         std::lock_guard<std::mutex> hold(g_cpu->threads_lock);
         for (const std::unique_ptr<GuestThread> &t : g_cpu->threads)
-            if (t && block_of(*t)->host.host_thread_id == id) tb = block_of(*t);
+            if (t && block_of(*t) && block_of(*t)->host.host_thread_id == id) tb = block_of(*t);
     }
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
     for (;;) {
@@ -375,11 +400,9 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
     h.depth--;
     if (h.exited && h.depth == 0) {
         // exit() or a fatal trap unwound to this base frame: the host thread ends here (the main thread included).
-        if (h.host_thread) {
-            g_cpu->live_guest_threads--;
-            g_cpu->memory->free_stack({{h.stack_base}, {h.stack_limit}});
-        }
-        ExitThread(h.exit_code);
+        uint32_t code = h.exit_code;
+        if (h.host_thread) end_thread(tb);
+        ExitThread(code);
     }
     return r;
 }
@@ -388,9 +411,9 @@ void GuestThread::exit(uint32_t code) { unwind_thread(block_, code); }
 
 GuestVa GuestThread::kpcr() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_))}; }
 GuestVa GuestThread::ethread() const { return {uint32_t(reinterpret_cast<uintptr_t>(block_)) + kEthreadOffset}; }
-uint32_t GuestThread::index() const { return block_->host.index; }
-bool GuestThread::has_guest_frame() const { return block_->host.depth > 0; }
-uint32_t GuestThread::host_thread_id() const { return block_->host.host_thread_id; }
+uint32_t GuestThread::index() const { return block_ ? block_->host.index : ended_index_; }
+bool GuestThread::has_guest_frame() const { return block_ && block_->host.depth > 0; }
+uint32_t GuestThread::host_thread_id() const { return block_ ? block_->host.host_thread_id : ended_host_thread_id_; }
 
 void GuestThread::resume()
 {
