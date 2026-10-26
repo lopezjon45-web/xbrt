@@ -29,7 +29,8 @@ jobs:
       - name: No placeholder definitions on main
         if: github.ref == 'refs/heads/main'
         shell: bash
-        run: test ! -e host/cpu_pending.cpp || { echo "host/cpu_pending.cpp is on main: delete it and use the real definitions"; exit 1; }
+        run: |
+          if [ -e host/cpu_pending.cpp ]; then echo "host/cpu_pending.cpp is on main; delete it for the real definitions"; exit 1; fi
       # No uwp: true: the probes that start on the console build in this plain x64 environment, so xbrt does too.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
