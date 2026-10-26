@@ -62,10 +62,17 @@ TEST(parse_launch_reads_a_survey_link)
     CHECK(r->disc_path.empty());
 }
 
+TEST(parse_launch_without_launch_on_exit_returns_nowhere)
+{
+    for (const QueryPairs &pairs : {QueryPairs{{u"dir", u"disc"}}, QueryPairs{{u"dir", u"disc"}, {u"launchOnExit", u""}}}) {
+        xbrt::Parsed<xbrt::LaunchRequest> r = xbrt::parse_launch(pairs);
+        CHECK(r.has_value());
+        if (r) CHECK(r->return_uri.empty());
+    }
+}
+
 TEST(parse_launch_names_the_field_it_rejects)
 {
-    CHECK_CONTAINS(error_of({{u"disc", kGame}}), "launchOnExit");
-    CHECK_CONTAINS(error_of({{u"disc", kGame}, {u"launchOnExit", u""}}), "launchOnExit");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}}), "exactly one");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", kGame}, {u"survey", u"E:\\Xbox"}}), "exactly one");
     CHECK_CONTAINS(error_of({{u"launchOnExit", kBack}, {u"disc", u"Xbox\\game.iso"}}), "disc: \"Xbox\\game.iso\" is not an absolute");

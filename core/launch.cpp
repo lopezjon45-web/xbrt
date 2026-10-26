@@ -66,8 +66,7 @@ Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs)
     }
 
     LaunchRequest r;
-    if (!back || back->empty()) return std::unexpected("launchOnExit: missing, so there is no way back to the hub");
-    r.return_uri = std::move(*back);
+    if (back) r.return_uri = std::move(*back);
 
     if (int(disc.has_value()) + int(dir.has_value()) + int(survey.has_value()) != 1)
         return std::unexpected("disc, dir or survey: a link names exactly one of them");

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # run-u0.sh <release dir> [--disc-match <text> | --survey "E:\Xbox" | --upload-xbe <default.xbe>] [--trace kernel] [--bisect] [--deadline N]
+#           [--return <uri>]
 #
 # <release dir> is a download of one CI prerelease (gh release download build-N -D <dir>) holding the appx files and
 # SHA256SUMS.txt. Acts on the console only while ~/mesa-one-s/xbox/console-free reads exactly "xbrt". Never
@@ -22,6 +23,7 @@ DISC=""
 DISC_MATCH=""
 SURVEY=""
 UPLOAD_XBE=""
+RETURN=""   # the link's launchOnExit; none by default, so a test run never switches Jon's TV to the hub
 TRACE=""
 BISECT=0
 LIBRARY=/Users/jonlopez/mesa-one-s/xbrt-local/library.txt
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
         --survey) SURVEY=$2; shift ;;
         --upload-xbe) UPLOAD_XBE=$2; shift ;;
         --trace) TRACE=$2; shift ;;
+        --return) RETURN=$2; shift ;;
         --bisect) BISECT=1 ;;
         --deadline) DEADLINE=$2; shift ;;
         *) die "unknown option $1" ;;
@@ -136,14 +139,15 @@ $hits"
 
 # launch_link: the hub's link for the disc, the extracted disc or the survey folder, each value escaped once
 launch_link() {
-    local back extra=""; back=$(urlenc 'decomp:')
-    [ -z "$TRACE" ] || extra="&trace=$(urlenc "$TRACE")"
+    local extra=""
+    [ -z "$RETURN" ] || extra="&launchOnExit=$(urlenc "$RETURN")"
+    [ -z "$TRACE" ] || extra="$extra&trace=$(urlenc "$TRACE")"
     if [ -n "$SURVEY" ]; then
-        printf 'xboxrt:?survey=%s&launchOnExit=%s' "$(urlenc "$SURVEY")" "$back"
+        printf 'xboxrt:?survey=%s%s' "$(urlenc "$SURVEY")" "$extra"
     elif [ -n "$UPLOAD_XBE" ]; then
-        printf 'xboxrt:?dir=disc&launchOnExit=%s%s' "$back" "$extra"
+        printf 'xboxrt:?dir=disc%s' "$extra"
     else
-        printf 'xboxrt:?disc=%s&home=%s&launchOnExit=%s%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$back" "$extra"
+        printf 'xboxrt:?disc=%s&home=%s%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$extra"
     fi
 }
 
@@ -195,7 +199,9 @@ say "== $MAIN_NAME $version (console about to be used)"
 install_identity "$main_appx"
 find_installed "$MAIN_NAME"
 
-# a fresh package's LocalState takes portal file calls only after one start and stop
+# The warm-up must not boot the last run's link: its launchOnExit would switch the TV to the hub. A fresh package has
+# no launch.txt yet, and its LocalState takes portal file calls only after this start and stop.
+del_file "$P_FULL" '\LocalState' launch.txt 2>/dev/null && say "removed the last run's launch.txt before the warm-up" || true
 say "warm-up start and stop"
 lease_ok || die "the lease was taken back before the warm-up"
 start_once "$OUT/warmup-start-response.txt" || say "warm-up start refused (see $OUT/warmup-start-response.txt)"

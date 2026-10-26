@@ -20,7 +20,7 @@ struct LaunchRequest {
     std::u16string dir_path;        // an extracted disc directory (absolute, or relative to LocalState); D:\ maps to it
     std::u16string xbe = u"\\default.xbe";
     std::u16string home;            // <home>\saves\xbrt\<TitleID>\ holds saves; empty means LocalState
-    std::u16string return_uri;      // there is always a way back to the hub
+    std::u16string return_uri;      // the hub's link back; empty when the link has none (a console test run)
     std::u16string survey_folder;   // xboxrt:?survey=<folder>: no game; survey every *.iso there
     bool show_counters = false;
     Trace trace = Trace::Off;
@@ -28,8 +28,9 @@ struct LaunchRequest {
 
 using QueryPairs = std::vector<std::pair<std::u16string, std::u16string>>;
 
-// Unknown names are ignored. Missing launchOnExit, neither disc nor survey, a disc path that is not absolute or not
-// .iso/.xiso, or an xbe that is not "\...\.xbe" is an error naming the field.
+// Unknown names are ignored. Neither disc, dir nor survey, a disc path that is not absolute or not .iso/.xiso, or an
+// xbe that is not "\...\.xbe" is an error naming the field. Without launchOnExit the app exits without opening
+// anything: the hub always sends one, and a console test run sends none so the TV is not switched to the hub.
 Parsed<LaunchRequest> parse_launch(const QueryPairs &pairs);
 
 struct ReturnFailure {
