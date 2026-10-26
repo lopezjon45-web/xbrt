@@ -60,13 +60,14 @@ struct Call {
         return put(zero.data(), n);
     }
     uint32_t &at(uint32_t va) { return *memory.host<uint32_t>({va}); }
-    void run(Ordinal o, std::initializer_list<uint32_t> args)
+    void run(Ordinal o, std::initializer_list<uint32_t> args) { run(o, kUntouched, kUntouched, args); }
+    // fastcall: the first two arguments in ecx and edx, the rest pushed.
+    void run(Ordinal o, uint32_t ecx, uint32_t edx, std::initializer_list<uint32_t> args)
     {
         at(esp) = kReturnAddress;
         uint32_t i = 0;
         for (uint32_t a : args) at(esp + 4 + 4 * i++) = a;
-        frame = {kUntouched, kUntouched, kUntouched, kUntouched, kUntouched, kUntouched, kUntouched, esp, kReturnAddress, 0x1F80,
-                 0x027F, 0};
+        frame = {kUntouched, ecx, edx, kUntouched, kUntouched, kUntouched, kUntouched, esp, kReturnAddress, 0x1F80, 0x027F, 0};
         on_host_call(GuestThread::current(), HostCallId::kernel(o), frame);
     }
     // stdcall: back at the return address with the arguments popped.
@@ -389,6 +390,83 @@ bool run_kernel_tests(GuestMemory &memory, const std::function<void(const std::s
                       (outside_written ? " written to home\\outside.txt" : " not written") +
                       "; want inside 0x0 written, outside refused and not written";
         result("home-writes", failure);
+    }
+    // Argument layouts from nxdk's xboxkrnl.h: each call pops what the Xbox kernel's own `ret N` pops and reads its
+    // arguments where the caller put them.
+    {
+        Call c(memory, stack);
+        uint32_t addend = c.reserve(8);
+        c.at(addend) = 0xFFFFFFFF;
+        c.at(addend + 4) = 1;
+        // Addend, Increment (LARGE_INTEGER by value: two slots), Lock
+        c.run({19}, {addend, 1, 1, c.reserve(4)});
+        std::string failure = c.returned(16, 0xFFFFFFFF);
+        if (failure.empty() && (c.frame.edx != 1 || c.at(addend) != 0 || c.at(addend + 4) != 3))
+            failure = "old high " + hex(c.frame.edx) + ", addend " + hex(c.at(addend + 4)) + ":" + hex(c.at(addend)) +
+                      "; want old high 0x1, addend 0x3:0x0";
+        result("ExInterlockedAddLargeInteger", failure);
+    }
+    {
+        Call c(memory, stack);
+        uint32_t dest = c.reserve(8), exchange = c.reserve(8), comparand = c.reserve(8);
+        c.at(dest) = 0x11111111;
+        c.at(dest + 4) = 0x22222222;
+        c.at(exchange) = 0x33333333;
+        c.at(exchange + 4) = 0x44444444;
+        c.at(comparand) = 0x11111111;
+        c.at(comparand + 4) = 0x22222222;
+        c.run({21}, dest, exchange, {comparand});
+        std::string failure = c.returned(4, 0x11111111);
+        if (failure.empty() && (c.frame.edx != 0x22222222 || c.at(dest) != 0x33333333 || c.at(dest + 4) != 0x44444444))
+            failure = "old high " + hex(c.frame.edx) + ", destination " + hex(c.at(dest + 4)) + ":" + hex(c.at(dest)) +
+                      "; want old high 0x22222222, destination 0x44444444:0x33333333";
+        result("ExInterlockedCompareExchange64", failure);
+    }
+    {
+        Call c(memory, stack);
+        uint32_t dest = c.reserve(4);
+        c.at(dest) = 5;
+        c.run({51}, dest, 9, {5});   // eax holds kUntouched, which is no argument
+        std::string failure = c.returned(4, 5);
+        if (failure.empty() && c.at(dest) != 9) failure = "destination " + hex(c.at(dest)) + ", want 0x9";
+        result("InterlockedCompareExchange", failure);
+    }
+    {
+        Call c(memory, stack);
+        c.run({307}, 0x11223344, kUntouched, {});
+        result("RtlUlongByteSwap", c.returned(0, 0x44332211));
+    }
+    {
+        // x / 10000 by the magic multiplier 2^77 / 10000 and a shift of 13, both signs.
+        const uint64_t magic = 0xD1B71758E219652Cull;
+        const int64_t dividend = 123456789ll * 10000 + 1234;
+        std::string failure;
+        for (int64_t x : {dividend, -dividend}) {
+            Call c(memory, stack);
+            c.run({283}, {uint32_t(x), uint32_t(uint64_t(x) >> 32), uint32_t(magic), uint32_t(magic >> 32), 13});
+            int64_t want = x / 10000;
+            failure = c.returned(20, uint32_t(want));
+            if (failure.empty() && c.frame.edx != uint32_t(uint64_t(want) >> 32))
+                failure = "quotient high " + hex(c.frame.edx) + ", want " + hex(uint32_t(uint64_t(want) >> 32));
+            if (!failure.empty()) break;
+        }
+        result("RtlExtendedMagicDivide", failure);
+    }
+    {
+        Call c(memory, stack);
+        uint32_t head = c.reserve(8), first = c.reserve(8), second = c.reserve(8);
+        c.at(head) = head;
+        c.at(head + 4) = head;
+        c.run({33}, head, first, {});
+        std::string failure = c.returned(0, 0);
+        if (failure.empty()) {
+            c.run({33}, head, second, {});
+            failure = c.returned(0, first);
+        }
+        if (failure.empty() && (c.at(head) != first || c.at(head + 4) != second || c.at(first) != second ||
+                                c.at(second + 4) != first || c.at(second) != head))
+            failure = "list head " + hex(c.at(head)) + "/" + hex(c.at(head + 4)) + " is not head -> first -> second";
+        result("ExfInterlockedInsertTailList", failure);
     }
     result("usb-pad", usb_pad_enumerates(memory));
     return all;
