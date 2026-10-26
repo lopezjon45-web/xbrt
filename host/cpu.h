@@ -96,6 +96,8 @@ struct TrapReport {
     std::array<uint8_t, 32> bytes_at_eip;
     uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi, eflags;
     std::vector<GuestVa> ebp_chain;   // a guest stack walk, best effort
+    // The faulting thread's KPCR and KTHREAD fields that fs: and TLS accesses go through.
+    uint32_t exception_list, stack_base, stack_limit, irql, current_thread, tls_data, tls_slot0;
 };
 
 class Cpu {

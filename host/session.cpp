@@ -317,6 +317,8 @@ struct Session::State final : MissingSink {
             fprintf(f, "thread %u eip 0x%08X\n", r.thread, r.where.v);
             fprintf(f, "eax=%08X ecx=%08X edx=%08X ebx=%08X esp=%08X ebp=%08X esi=%08X edi=%08X eflags=%08X\n", r.eax, r.ecx, r.edx,
                     r.ebx, r.esp, r.ebp, r.esi, r.edi, r.eflags);
+            fprintf(f, "kpcr ExceptionList=%08X StackBase=%08X StackLimit=%08X Irql=%u CurrentThread=%08X TlsData=%08X [TlsData]=%08X\n",
+                    r.exception_list, r.stack_base, r.stack_limit, r.irql, r.current_thread, r.tls_data, r.tls_slot0);
             fprintf(f, "bytes at eip");
             for (uint8_t b : r.bytes_at_eip) fprintf(f, " %02X", b);
             fprintf(f, "\n");

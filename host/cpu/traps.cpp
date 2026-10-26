@@ -534,6 +534,13 @@ uint32_t route(Trap &t)
     r.esi = uint32_t(c.Rsi);
     r.edi = uint32_t(c.Rdi);
     r.eflags = c.EFlags;
+    r.exception_list = tb->kpcr.NtTib.ExceptionList;
+    r.stack_base = tb->kpcr.NtTib.StackBase;
+    r.stack_limit = tb->kpcr.NtTib.StackLimit;
+    r.irql = tb->kpcr.Irql;
+    r.current_thread = tb->kpcr.PrcbData.CurrentThread;
+    r.tls_data = tb->ethread.Tcb.TlsData;
+    if (r.tls_data && readable(r.tls_data, 4)) r.tls_slot0 = Access::load(host(r.tls_data), 4);
     uint32_t ebp = uint32_t(c.Rbp);
     for (int i = 0; i < 32 && ebp >= tb->host.stack_limit && ebp <= tb->host.stack_base - 8; i++) {
         r.ebp_chain.push_back({Access::load(host(ebp + 4), 4)});
