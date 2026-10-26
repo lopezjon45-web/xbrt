@@ -67,8 +67,12 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     if (!bva.v || !stack.base.v) return nullptr;
     ThreadBlock *tb = m.host<ThreadBlock>(bva);
     memset(tb, 0, sizeof *tb);
+    // TLS at the top of the stack and StackBase == TlsData, as the Xbox kernel lays a thread out: XAPI reaches a
+    // thread's TLS as [fs:[4] + _tls_index * 4] and writes TlsData[0] = &TlsData[1] in its thread start.
+    uint32_t top = stack.base.v;
+    if (tls_data_size) top = (stack.base.v - (tls_data_size + 4)) & ~15u;
     XboxKpcr &k = tb->kpcr;
-    k.NtTib.StackBase = stack.base.v;
+    k.NtTib.StackBase = top;
     k.NtTib.StackLimit = stack.limit.v;
     k.NtTib.Self = bva.v;
     k.SelfPcr = bva.v;
@@ -78,23 +82,22 @@ ThreadBlock *make_thread(uint32_t stack_size, uint32_t tls_data_size, int priori
     k.PrcbData.DpcListHead[0] = k.PrcbData.DpcListHead[1] = bva.v + offsetof(XboxKpcr, PrcbData.DpcListHead);
     k.PrcbData.DmEnetFunc = g_cpu->gates.ret_stub;
     XboxEthread &e = tb->ethread;
-    e.Tcb.StackBase = stack.base.v;
+    e.Tcb.StackBase = top;
     e.Tcb.StackLimit = stack.limit.v;
-    e.Tcb.KernelStack = stack.base.v;
+    e.Tcb.KernelStack = top;
     e.Tcb.State = kKthreadRunning;
     e.Tcb.Priority = e.Tcb.BasePriority = uint8_t(priority);
     if (tls_data_size) {
-        uint32_t tls = bva.v + kTlsOffset;
-        if (tls_data_size + 4 > kTlsCapacity) tls = m.allocate_system(tls_data_size + 4, xbox_page::ReadWrite).v;
-        if (!tls) return nullptr;
-        *m.host<uint32_t>({tls}) = tls + 4;
-        e.Tcb.TlsData = tls;
+        memset(m.host<void>({top}), 0, tls_data_size + 4);
+        *m.host<uint32_t>({top}) = top + 4;
+        e.Tcb.TlsData = top;
     }
     HostPart &h = tb->host;
     h.host_mxcsr = h.guest_mxcsr = kAbiMxcsr;
     h.host_fpcw = h.guest_fpcw = kAbiFpcw;
     h.stack_base = stack.base.v;
     h.stack_limit = stack.limit.v;
+    h.stack_top = top;
     h.index = g_cpu->next_index++;
     std::lock_guard<std::mutex> hold(g_cpu->threads_lock);
     g_cpu->threads.emplace_back(ThreadAccess::make(tb));
@@ -294,7 +297,7 @@ uint64_t GuestThread::call(GuestVa va, std::span<const uint32_t> args, CallConv 
 {
     ThreadBlock *tb = block_;
     HostPart &h = tb->host;
-    uint32_t esp = h.depth == 0 ? h.stack_base - 16 : (h.guest_esp - kCallGap) & ~15u;
+    uint32_t esp = h.depth == 0 ? h.stack_top - 16 : (h.guest_esp - kCallGap) & ~15u;
     uint32_t ecx = 0, edx = 0;
     size_t first_on_stack = 0;
     switch (conv) {

@@ -120,12 +120,9 @@ static_assert(sizeof(XboxEthread) == 0x140);
 
 inline constexpr uint8_t kKthreadRunning = 2;   // KTHREAD_STATE
 
-// The ThreadBlock: two pages in the runtime region; r15 holds its base while the thread runs guest code. The TLS
-// block holds TlsData[0] = &TlsData[1] and zeroed bytes: XAPI's thread start copies the template itself.
+// The ThreadBlock: two pages in the runtime region; r15 holds its base while the thread runs guest code.
 inline constexpr uint32_t kThreadBlockSize = 0x2000;
 inline constexpr uint32_t kEthreadOffset = 0x400;
-inline constexpr uint32_t kTlsOffset = 0x800;
-inline constexpr uint32_t kTlsCapacity = 0x800;
 inline constexpr uint32_t kHostPartOffset = 0x1000;
 inline constexpr uint32_t kTrapFrameOffset = 0x1800;
 inline constexpr uint32_t kAbiMxcsr = 0x1F80;
@@ -142,7 +139,8 @@ struct HostPart {
     GuestThread *thread;
     uint32_t guest_esp;       // the guest esp at the innermost host call or trap; a nested call() builds below it
     uint32_t index;
-    uint32_t stack_base, stack_limit;
+    uint32_t stack_base, stack_limit;   // the allocation; free_stack takes them back
+    uint32_t stack_top;                 // where guest esp starts: below the TLS block when the thread has one
     uint32_t exit_code;
     uint32_t exited;
     void *host_thread;

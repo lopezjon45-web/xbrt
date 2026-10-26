@@ -79,14 +79,13 @@ struct ThreadBlock {
     XboxKpcr kpcr;
     uint8_t pad0[kEthreadOffset - sizeof(XboxKpcr)];
     XboxEthread ethread;
-    uint8_t pad1[kTlsOffset - kEthreadOffset - sizeof(XboxEthread)];
-    uint8_t tls[kTlsCapacity];
+    uint8_t pad1[kHostPartOffset - kEthreadOffset - sizeof(XboxEthread)];
     HostPart host;
     uint8_t pad2[kTrapFrameOffset - kHostPartOffset - sizeof(HostPart)];
     TrapFrame trap;
     uint8_t pad3[kThreadBlockSize - kTrapFrameOffset - sizeof(TrapFrame)];
 };
-static_assert(offsetof(ThreadBlock, ethread) == kEthreadOffset && offsetof(ThreadBlock, tls) == kTlsOffset);
+static_assert(offsetof(ThreadBlock, ethread) == kEthreadOffset);
 static_assert(offsetof(ThreadBlock, host) == kHostPartOffset && offsetof(ThreadBlock, trap) == kTrapFrameOffset);
 static_assert(sizeof(ThreadBlock) == kThreadBlockSize);
 

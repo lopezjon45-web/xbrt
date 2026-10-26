@@ -502,7 +502,8 @@ struct Tests {
         GetExitCodeThread(h, &code);
         uint32_t threads_now = cpu.counters().live_guest_threads;
         const ThreadBlock *tb = detail::block_of(t);
-        bool tls = tb->ethread.Tcb.TlsData != 0 && *memory.host<uint32_t>({tb->ethread.Tcb.TlsData}) == tb->ethread.Tcb.TlsData + 4;
+        bool tls = tb->ethread.Tcb.TlsData != 0 && *memory.host<uint32_t>({tb->ethread.Tcb.TlsData}) == tb->ethread.Tcb.TlsData + 4 &&
+                   tb->kpcr.NtTib.StackBase == tb->ethread.Tcb.TlsData && tb->ethread.Tcb.TlsData + 0x40 + 4 <= tb->host.stack_base;
         std::string detail = format("wait=%lu exit=0x%lX depth at exit=%u index=%u threads=%u tls=%d prcb+250=0x%08X", wait, code, exit_depth,
                                     spawned_index, threads_now, int(tls), tb->kpcr.PrcbData.DmEnetFunc);
         return {wait == WAIT_OBJECT_0 && code == 0x77 && exit_depth == 2 && spawned_index == t.index() && spawned_index > 0 && threads_now == 0 && tls &&
