@@ -15,6 +15,16 @@
 
 namespace xbrt {
 
+namespace detail {
+struct ThreadBlock;
+struct ThreadAccess;
+}
+
+struct GuestRange {
+    GuestVa base;
+    uint32_t size;
+};
+
 // One id space for everything a guest call can reach on the host: kernel exports and HLE overrides. The two makers
 // are the only way to build one, and their ranges cannot overlap.
 class HostCallId {
@@ -120,6 +130,9 @@ public:
 
     CpuCounters counters() const;
     uint64_t guest_tsc() const;
+
+private:
+    Cpu() = default;
 };
 
 enum class CallConv : uint8_t { Stdcall, Cdecl, Fastcall, Thiscall };
@@ -155,6 +168,11 @@ public:
     uint32_t index() const;    // 0 for the main thread; the survey and crash.txt name threads by it
     void resume();             // NtResumeThread on a suspended spawn
     uint32_t host_thread_id() const;
+
+private:
+    friend struct detail::ThreadAccess;
+    explicit GuestThread(detail::ThreadBlock *block) : block_(block) {}
+    detail::ThreadBlock *block_;
 };
 
 }  // namespace xbrt
