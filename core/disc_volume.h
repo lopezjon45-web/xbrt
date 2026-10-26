@@ -31,7 +31,8 @@ struct DiscCacheStats {
 std::string disc_cache_line(const DiscCacheStats &s);
 
 // 64 KiB blocks kept least-recently-used up to 32 MiB. A read covering whole blocks goes straight to the image and is
-// not kept: streamed data is read once. Safe from any thread; a miss holds the lock while it reads its block.
+// not kept: streamed data is read once. Safe from any thread; the lock is held across every image read, so one read at
+// a time reaches the drive and a Source that seeks (the desktop host's) is safe.
 class BlockCache {
 public:
     static constexpr uint64_t kBlockBytes = 64 * 1024;
