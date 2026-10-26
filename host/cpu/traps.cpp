@@ -525,6 +525,7 @@ uint32_t route(Trap &t)
     r.where = {uint32_t(c.Rip)};
     r.thread = tb->host.index;
     if (readable(c.Rip, r.bytes_at_eip.size())) memcpy(r.bytes_at_eip.data(), host(uint32_t(c.Rip)), r.bytes_at_eip.size());
+    if (readable(c.Rsp, sizeof r.stack_at_esp)) memcpy(r.stack_at_esp.data(), host(uint32_t(c.Rsp)), sizeof r.stack_at_esp);
     r.eax = uint32_t(c.Rax);
     r.ecx = uint32_t(c.Rcx);
     r.edx = uint32_t(c.Rdx);

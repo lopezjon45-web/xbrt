@@ -1,5 +1,6 @@
 #include "host/session.h"
 
+#include "core/hle_table.h"
 #include "core/plan.h"
 #include "core/survey.h"
 #include "core/symbols.h"
@@ -92,8 +93,16 @@ struct InFlightCall {
     uint32_t index = 0;
     std::atomic<uint16_t> ordinal{0};
     std::atomic<uint64_t> since_ms{0};
+    uint16_t last_call = 0;   // HostCallId::raw()
+    uint32_t last_from = 0, last_to = 0;
 };
 thread_local InFlightCall *t_in_flight = nullptr;
+
+std::string host_call_name(HostCallId id)
+{
+    if (id.is_kernel()) return format("kernel %u %s", id.ordinal().v, std::string(kernel_export_name(id.ordinal())).c_str());
+    return "override " + std::string(kHleTable[static_cast<size_t>(id.hle())].symbol);
+}
 
 [[noreturn]] void park_until_process_ends()
 {
@@ -319,6 +328,15 @@ struct Session::State final : MissingSink {
                     r.ebx, r.esp, r.ebp, r.esi, r.edi, r.eflags);
             fprintf(f, "kpcr ExceptionList=%08X StackBase=%08X StackLimit=%08X Irql=%u CurrentThread=%08X TlsData=%08X [TlsData]=%08X\n",
                     r.exception_list, r.stack_base, r.stack_limit, r.irql, r.current_thread, r.tls_data, r.tls_slot0);
+            fprintf(f, "stack at esp");
+            for (uint32_t v : r.stack_at_esp) fprintf(f, " %08X", v);
+            fprintf(f, "\n");
+            AcquireSRWLockShared(&in_flight_lock);
+            for (const InFlightCall &c : in_flight)
+                if (c.index == r.thread && c.last_call)
+                    fprintf(f, "last host call on t%u: %s from 0x%08X, resumed at 0x%08X\n", c.index,
+                            host_call_name(HostCallId::from_raw(c.last_call)).c_str(), c.last_from, c.last_to);
+            ReleaseSRWLockShared(&in_flight_lock);
             fprintf(f, "bytes at eip");
             for (uint8_t b : r.bytes_at_eip) fprintf(f, " %02X", b);
             fprintf(f, "\n");
@@ -360,9 +378,15 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
         frame.esp += 4;
         return;
     }
-    if (!id.is_kernel()) return on_host_call(thread, id, frame);
-    uint16_t o = id.ordinal().v;
     InFlightCall &call = s.in_flight_of(thread);
+    if (!id.is_kernel()) {
+        call.last_from = mem32(frame.esp);
+        on_host_call(thread, id, frame);
+        call.last_call = id.raw();
+        call.last_to = frame.eip;
+        return;
+    }
+    uint16_t o = id.ordinal().v;
     uint64_t outer_since = call.since_ms.exchange(GetTickCount64());
     uint16_t outer = call.ordinal.exchange(o);
     if (s.trace_kernel) {
@@ -380,7 +404,11 @@ void host_call(GuestThread &thread, HostCallId id, GateFrame &frame) noexcept
                             mem32(frame.esp + 12), mem32(frame.esp + 16), name.c_str(),
                             s.symbols.describe({mem32(frame.esp)}, s.xbe).c_str(), thread.index()));
     }
+    uint32_t from = mem32(frame.esp);
     on_host_call(thread, id, frame);
+    call.last_call = id.raw();
+    call.last_from = from;
+    call.last_to = frame.eip;
     if (s.trace_kernel) s.shell->log(format("kernel call %u returned eax=%08X on t%u", o, frame.eax, thread.index()));
     call.ordinal = outer;
     call.since_ms = outer_since;

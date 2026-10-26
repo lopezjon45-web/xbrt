@@ -94,6 +94,7 @@ struct TrapReport {
     GuestVa where;
     uint32_t thread;
     std::array<uint8_t, 32> bytes_at_eip;
+    std::array<uint32_t, 16> stack_at_esp;   // zero where unreadable
     uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi, eflags;
     std::vector<GuestVa> ebp_chain;   // a guest stack walk, best effort
     // The faulting thread's KPCR and KTHREAD fields that fs: and TLS accesses go through.
