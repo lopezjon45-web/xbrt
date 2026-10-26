@@ -78,6 +78,10 @@ install_identity() {
         say "already installed: $P_FULL"
         return 0
     fi
+    # The console refuses a downgrade and this script never uninstalls, so a lower version stops here, by name.
+    if [ -n "$P_VER" ] && version_lt "$version" "$P_VER"; then
+        die "$name $version is below the installed $P_VER ($P_FULL): build a higher version (build.ps1 sets the base)"
+    fi
     out=$(install_package "$appx" 2>&1) || true
     say "$out"
     if printf '%s' "$out" | grep -q '80073D02'; then say "install answered 0x80073D02: treated as present"; fi
