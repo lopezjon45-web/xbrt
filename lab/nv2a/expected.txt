@@ -1,0 +1,8 @@
+lab nv2a start
+lab nv2a boot0 0x02A000A3
+lab nv2a context switch interrupt handled
+lab nv2a get == put 0x00000040
+lab nv2a semaphore 0x00C0FFEE
+lab nv2a vblank 50..70 per second
+lab nv2a ptimer alarm
+lab nv2a ok
