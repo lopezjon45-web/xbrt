@@ -142,7 +142,7 @@ struct HostPart {
     uint32_t host_thread_id;
     uint32_t in_trap;         // the landing is running: a second fault there is a landing bug (row 0)
     void *spawn;              // the SpawnArgs of a spawned thread until its first call
-    uint32_t fs_sites_seen;   // learned promotions on this thread, for trace lines
+    uint32_t suspended;       // spawned CREATE_SUSPENDED and not yet resume()d
 };
 
 // Gate-encoded offsets. gates.md names them H_*; the emitter reads these constants and nothing else.

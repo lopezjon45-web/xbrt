@@ -259,6 +259,7 @@ std::vector<uint8_t> emit_ret_stub() { return {0xC3}; }
 std::vector<uint8_t> emit_fault_gate()
 {
     X64 a;
+    a.mov_rr32(rsp, rsp);   // zero-extend rsp as every gate does, so the kernel can build the trap frame
     a.ud2();
     return a.b;
 }

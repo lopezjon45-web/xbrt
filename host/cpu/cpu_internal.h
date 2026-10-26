@@ -21,6 +21,7 @@ namespace xbrt::detail {
 // A guest site of L >= 6 bytes becomes `FF 1D <far pointer>` and nops (gates.md 4).
 inline constexpr uint8_t kPatchLength = 6;
 inline constexpr uint16_t kCompatCs = 0x23, kLongCs = 0x33, kFlatData = 0x2B;
+inline constexpr uint32_t kFatalExitCode = 0xDEAD;   // a fatal trap ends the host thread with it
 
 std::vector<uint8_t> emit_enter64();
 std::vector<uint8_t> emit_exit32(uint32_t ptr_exit64);
@@ -141,6 +142,7 @@ extern "C" void xbrt_on_gate(GateFrame *frame, ThreadBlock *tb) noexcept;
 ThreadBlock *block_of(GuestThread &t);
 HANDLE thread_handle(GuestThread &t);   // for the tests: join a spawned thread and read its exit code
 uint32_t write_far_pointer(uint32_t offset);   // a new entry in the far-pointer table, under the patch lock
+uint64_t guest_tsc_now();
 
 // traps.cpp
 LONG CALLBACK cpu_veh(EXCEPTION_POINTERS *e);
