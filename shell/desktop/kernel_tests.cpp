@@ -175,7 +175,6 @@ std::string usb_pad_enumerates(GuestMemory &memory)
     Usb usb{memory, block.v, memory.physical(block)};
     std::memset(usb.bytes(0), 0, 0x1000);
     xbox_OhciAttach();
-    Sleep(31000);
     usb.set(Usb::kHcca, usb.pa);
     usb.set(Usb::kControlHeadEd, 0);
     usb.set(Usb::kControl, 0x80);                                 // UsbOperational
