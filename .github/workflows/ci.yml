@@ -113,6 +113,11 @@ jobs:
       - name: Build, test, gate, pack and sign
         shell: powershell
         run: .\build.ps1
+      - name: Proof, where the old gate's AVX-512 hit lies
+        shell: bash
+        run: |
+          git show 4c3c6812136becf346244e01bd930b0152300128:scripts/isa-gate.py > old-gate.py
+          python proof-locate.py gen/xbrt.exe
       - name: Run the desktop host
         shell: powershell
         run: |
