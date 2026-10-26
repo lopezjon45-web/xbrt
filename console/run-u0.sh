@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-u0.sh <release dir> [--disc-match <text> | --survey "E:\Xbox" | --upload-xbe <default.xbe>] [--trace kernel] [--bisect] [--deadline N]
-#           [--return <uri>]
+#           [--return <uri>] [--home <folder>]
 #
 # <release dir> is a download of one CI prerelease (gh release download build-N -D <dir>) holding the appx files and
 # SHA256SUMS.txt. Acts on the console only while ~/mesa-one-s/xbox/console-free reads exactly "xbrt". Never
@@ -24,6 +24,7 @@ DISC_MATCH=""
 SURVEY=""
 UPLOAD_XBE=""
 RETURN=""   # the link's launchOnExit; none by default, so a test run never switches Jon's TV to the hub
+HOME_DIR="" # --upload-xbe's home=; none by default (saves in LocalState). A disc= link always has E:\Game Vault
 TRACE=""
 BISECT=0
 LIBRARY=/Users/jonlopez/mesa-one-s/xbrt-local/library.txt
@@ -39,6 +40,7 @@ while [ $# -gt 0 ]; do
         --upload-xbe) UPLOAD_XBE=$2; shift ;;
         --trace) TRACE=$2; shift ;;
         --return) RETURN=$2; shift ;;
+        --home) HOME_DIR=$2; shift ;;
         --bisect) BISECT=1 ;;
         --deadline) DEADLINE=$2; shift ;;
         *) die "unknown option $1" ;;
@@ -145,7 +147,7 @@ launch_link() {
     if [ -n "$SURVEY" ]; then
         printf 'xboxrt:?survey=%s%s' "$(urlenc "$SURVEY")" "$extra"
     elif [ -n "$UPLOAD_XBE" ]; then
-        printf 'xboxrt:?dir=disc%s' "$extra"
+        printf 'xboxrt:?dir=disc%s%s' "${HOME_DIR:+&home=$(urlenc "$HOME_DIR")}" "$extra"
     else
         printf 'xboxrt:?disc=%s&home=%s%s' "$(urlenc "$DISC")" "$(urlenc 'E:\Game Vault')" "$extra"
     fi
