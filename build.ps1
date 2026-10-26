@@ -170,6 +170,8 @@ foreach ($exe in "gen\xbrt.exe", "gen\xbrt_desktop.exe") {
     $code = $LASTEXITCODE
     $lines | Where-Object { $_ -notmatch '^\s+(BMI2|FMA3|FMA4|AVX2|AVX512) ' } | Write-Output
     $gate.AddRange([string[]]$lines)
+    $lines | Where-Object { $_ -match 'AVX512|kmov' } | ForEach-Object { "DIAG " + [regex]::Escape($_) }
+    & dumpbin /nologo /disasm /range:0x140220500,0x1402205A0 $exe | ForEach-Object { "DIAG2 $_" }
     if ($code -ne 0) { [IO.File]::WriteAllText("$root\out\gate.txt", ($gate -join "`n") + "`n"); throw "$exe has instructions the One S cannot run (see out\gate.txt)" }
 }
 [IO.File]::WriteAllText("$root\out\gate.txt", ($gate -join "`n") + "`n")
